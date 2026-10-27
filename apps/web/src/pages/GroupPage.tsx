@@ -238,13 +238,19 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
               <button type="button" className="secondary" disabled={!proof.trim() || status === 'paying'} onClick={submitProof}>Submit proof</button>
             </details>
           )}
-          <p className="muted small">Or pay with a wallet connected in <a href="#/settings">Settings</a>:</p>
+          {ctx.settings.nwcUrl ? (
+            <p className="muted small">Or pay with your connected wallet:</p>
+          ) : (
+            <p className="muted small">Tip: connect a wallet in <a href="#/settings">Settings</a> to pay with one tap instead.</p>
+          )}
         </>
       )}
       {error && <p className="error">{error}</p>}
-      <button disabled={!invoice || !ctx.settings.nwcUrl || status === 'paying'} onClick={pay}>
-        {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
-      </button>
+      {invoice && ctx.settings.nwcUrl && (
+        <button disabled={status === 'paying'} onClick={pay}>
+          {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
+        </button>
+      )}
     </section>
   );
 }

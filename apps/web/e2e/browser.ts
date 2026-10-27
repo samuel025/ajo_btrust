@@ -46,6 +46,9 @@ try {
   const amount = await page.$('input[inputmode="numeric"]');
   await amount!.click({ clickCount: 3 });
   await amount!.type('1000');
+  // this test adds members by their keys; invite links have their own test
+  await page.evaluate(() => { [...document.querySelectorAll('label.radio')].find((l) => l.textContent?.includes('already have'))!.querySelector('input')!.click(); });
+  await page.waitForSelector('textarea');
   const members = await page.$('textarea');
   await members!.click({ clickCount: 3 });
   await page.keyboard.press('Backspace');
