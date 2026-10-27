@@ -55,6 +55,8 @@ export interface RoundState {
   payoutOrder?: string[];
   /** The latest reminder each member has been sent this round, so none is sent twice. */
   reminders?: Record<string, ReminderStage>;
+  /** LNURL "verify" URLs the coordinator can poll to see whether each member's invoice was paid, by member. */
+  verify?: Record<string, string>;
   /** When the coordinator first saw each member's payment (unix seconds). Signed by the coordinator, so members can't backdate it. */
   paidAt?: Record<string, number>;
   /** Members who didn't pay by the default deadline; the round closed without their contribution. */

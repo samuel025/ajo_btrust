@@ -205,3 +205,56 @@ describe('defaults and payment times', () => {
     expect(result.state.status).toBe('open');
   });
 });
+
+describe('payments from any wallet (LNURL verify)', () => {
+  const when = group.startDate - 86_400;
+  const withVerify: FetchInvoice = async (address, sats) => ({ ...(await fetchInvoice(address, sats)), verifyUrl: 'https://wallet.example/verify/x' });
+  const issue = () => tick({ group, state: openRound(group, 0), addresses, receipts: [], fetchInvoice: withVerify, now: when });
+
+  it('remembers the verify link of each invoice', async () => {
+    const issued = await issue();
+    expect(issued.state.verify).toEqual({ [b]: 'https://wallet.example/verify/x', [c]: 'https://wallet.example/verify/x' });
+  });
+
+  it('counts a payment the provider reports, after checking its proof, and records a receipt', async () => {
+    const issued = await issue();
+    const checked: string[] = [];
+    const checkPayment = async (url: string) => { checked.push(url); return { settled: true, preimage: preimages.get(issued.state.invoices[b]!) }; };
+    const result = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, checkPayment: (u) => checkPayment(u).then((r) => ({ ...r })), now: when });
+    // the fake answers every call with b's proof, so only b's invoice matches it
+    expect(result.state.paid).toEqual([b]);
+    expect(result.actions).toContainEqual({ type: 'payment-detected', payer: b });
+    expect(result.autoReceipts).toMatchObject([{ payer: b, round: 0 }]);
+    expect(checked.length).toBeGreaterThan(0);
+  });
+
+  it('does not believe a provider that reports a payment without valid proof', async () => {
+    const issued = await issue();
+    for (const answer of [{ settled: true, preimage: '00'.repeat(32) }, { settled: true }]) {
+      const result = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, checkPayment: async () => answer, now: when });
+      expect(result.state.paid).toEqual([]);
+      expect(result.actions.some((x) => x.type === 'verify-failed')).toBe(true);
+    }
+  });
+
+  it('does nothing when the invoice is not paid yet, and keeps going if a check fails', async () => {
+    const issued = await issue();
+    const unpaidResult = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, checkPayment: async () => ({ settled: false }), now: when });
+    expect(unpaidResult.state.paid).toEqual([]);
+    expect(unpaidResult.actions.some((x) => x.type === 'verify-failed')).toBe(false);
+    const failing = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, checkPayment: async () => { throw new Error('provider down'); }, now: when });
+    expect(failing.actions).toContainEqual({ type: 'verify-failed', payer: b, reason: 'provider down' });
+  });
+
+  it('checks for a payment before auto-paying, so an invoice already paid by hand is not paid again', async () => {
+    const issued = await issue();
+    let autoPaid = false;
+    const result = await tick({
+      group, state: issued.state, addresses, receipts: [], fetchInvoice, now: when,
+      checkPayment: async (_url) => ({ settled: true, preimage: preimages.get(issued.state.invoices[b]!) }),
+      autoPay: async (member, invoice) => { if (member === b) autoPaid = true; return preimages.get(invoice); },
+    });
+    expect(result.state.paid).toContain(b);
+    expect(autoPaid).toBe(false);
+  });
+});

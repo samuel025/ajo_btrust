@@ -3,7 +3,10 @@ import {
   type GroupDef, type Receipt, type ReminderStage, type RoundState,
 } from '@ajo/core';
 
-export type FetchInvoice = (lightningAddress: string, amountSats: number) => Promise<{ invoice: string }>;
+export type FetchInvoice = (lightningAddress: string, amountSats: number) => Promise<{ invoice: string; verifyUrl?: string }>;
+
+/** Asks the recipient's wallet provider whether an invoice was paid (LNURL-pay verify). */
+export type CheckPayment = (verifyUrl: string) => Promise<{ settled: boolean; preimage?: string }>;
 
 /** Pays one member's invoice from their auto-pay grant and returns the preimage; undefined if they have none. */
 export type AutoPay = (member: string, invoice: string) => Promise<string | undefined>;
@@ -11,6 +14,8 @@ export type AutoPay = (member: string, invoice: string) => Promise<string | unde
 export type Action =
   | { type: 'invoice-failed'; payer: string; reason: string }
   | { type: 'autopaid'; payer: string }
+  | { type: 'payment-detected'; payer: string }
+  | { type: 'verify-failed'; payer: string; reason: string }
   | { type: 'defaulted'; members: string[]; round: number }
   | { type: 'answered'; count: number }
   | { type: 'assistant-error'; reason: string }
@@ -28,6 +33,8 @@ export interface TickInput {
   /** Every receipt seen for this group; the engine picks out the ones for this round. */
   receipts: Receipt[];
   fetchInvoice: FetchInvoice;
+  /** Lets the coordinator see for itself that an invoice was paid, so members can pay from any wallet. */
+  checkPayment?: CheckPayment;
   /** Pays on behalf of members who opted in. Omit to disable auto-pay. */
   autoPay?: AutoPay;
   now: number;
@@ -69,7 +76,9 @@ export async function tick(input: TickInput): Promise<TickResult> {
     if (state.invoices[payer]) continue;
     try {
       if (!recipientAddress) throw new Error('recipient has no Lightning address');
-      state.invoices[payer] = (await input.fetchInvoice(recipientAddress, group.amountSats)).invoice;
+      const fetched = await input.fetchInvoice(recipientAddress, group.amountSats);
+      state.invoices[payer] = fetched.invoice;
+      if (fetched.verifyUrl) state.verify = { ...state.verify, [payer]: fetched.verifyUrl };
     } catch (e) {
       actions.push({ type: 'invoice-failed', payer, reason: (e as Error).message });
     }
@@ -93,6 +102,29 @@ export async function tick(input: TickInput): Promise<TickResult> {
   };
 
   for (const receipt of receipts) accept(receipt);
+
+  // Members can pay from any wallet: if the recipient's provider offers a verify link, the
+  // coordinator checks it and takes the preimage from there. It still verifies the preimage against
+  // the invoice, so a provider's say-so alone proves nothing. This runs before auto-pay so an
+  // invoice that was already paid by hand is never paid a second time.
+  if (input.checkPayment) {
+    for (const payer of unpaid(group, state)) {
+      const url = state.verify?.[payer];
+      const invoice = state.invoices[payer];
+      if (!url || !invoice) continue;
+      try {
+        const status = await input.checkPayment(url);
+        if (!status.settled) continue;
+        if (!status.preimage) throw new Error('the provider says it was paid but gave no proof');
+        const receipt: Receipt = { groupId: group.id, round: state.round, payer, recipient: state.recipient, invoice, preimage: status.preimage };
+        if (!accept(receipt)) throw new Error('the provider reported a payment whose proof does not check out');
+        autoReceipts.push(receipt);
+        actions.push({ type: 'payment-detected', payer });
+      } catch (e) {
+        actions.push({ type: 'verify-failed', payer, reason: (e as Error).message });
+      }
+    }
+  }
 
   // Members who opted in are paid by the coordinator, but only for an invoice it issued itself
   // and only for exactly the contribution, so a grant can never be spent on anything else.

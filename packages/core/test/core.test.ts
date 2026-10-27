@@ -4,7 +4,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
-  standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
+  checkVerify, standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
@@ -211,6 +211,18 @@ describe('standings', () => {
     const key = createGroupKey();
     const state = { ...openRound(group, 0), paidAt: { [pk(b)]: 123 }, defaulted: [pk(c)] };
     expect(parseRound(finalizeEvent(roundEvent(state, key), bot), group, key)).toMatchObject({ paidAt: { [pk(b)]: 123 }, defaulted: [pk(c)] });
+  });
+});
+
+describe('checkVerify', () => {
+  const respond = (body: unknown) => async () => ({ json: async () => body });
+  it('reads a settled and an unsettled answer', async () => {
+    expect(await checkVerify('https://w/verify/1', respond({ status: 'OK', settled: true, preimage: 'ab' }))).toEqual({ settled: true, preimage: 'ab' });
+    expect(await checkVerify('https://w/verify/1', respond({ status: 'OK', settled: false, preimage: null }))).toEqual({ settled: false, preimage: undefined });
+  });
+  it('treats junk as not settled, and surfaces a provider error', async () => {
+    expect((await checkVerify('https://w/v', respond('garbage'))).settled).toBe(false);
+    await expect(checkVerify('https://w/v', respond({ status: 'ERROR', reason: 'unknown invoice' }))).rejects.toThrow('unknown invoice');
   });
 });
 

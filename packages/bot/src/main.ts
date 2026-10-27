@@ -1,9 +1,10 @@
 import { nip19 } from 'nostr-tools';
-import { fetchInvoice, type GroupRef, type Language } from '@ajo/core';
+import { checkVerify, fetchInvoice, type GroupRef, type Language } from '@ajo/core';
 import { discoverGroups, nostrLedger } from './nostr-ledger';
 import { configuredGeminiModels, geminiWriter } from './ai';
 import { templateWriter } from './messages';
 import { payInvoice } from './pay';
+import { safeFetch } from './safe-fetch';
 import { runOnce } from './runner';
 
 const nsec = process.env.BOT_NSEC;
@@ -24,6 +25,8 @@ const secretKey = decoded.data;
 
 const toHex = (key: string) => (key.startsWith('npub') ? (nip19.decode(key as `npub1${string}`).data as string) : key);
 const ledger = nostrLedger(relays, secretKey);
+/** Every outbound request to an address a member controls goes through this guard. */
+const guardedFetch = safeFetch();
 const INTERVAL_MS = 30_000;
 const aiReminderLanguages = (process.env.AI_REMINDER_LANGUAGES ?? 'en').split(',').map((l) => l.trim()).filter(Boolean) as Language[];
 const geminiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
@@ -43,7 +46,7 @@ async function loop() {
   ];
   for (const ref of refs) {
     try {
-      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats), undefined, { pay: payInvoice, paid, writer });
+      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats, guardedFetch), undefined, { pay: payInvoice, paid, writer, checkPayment: (url) => checkVerify(url, guardedFetch) });
       for (const action of actions) console.log(ref.id, JSON.stringify(action));
     } catch (e) {
       console.error(ref.id, (e as Error).message);

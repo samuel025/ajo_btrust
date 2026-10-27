@@ -1,7 +1,7 @@
 import {
   isFinished, openRound, type GroupDef, type GroupRef, type Receipt, type RoundState,
 } from '@ajo/core';
-import { nextRound, tick, type Action, type FetchInvoice } from './engine';
+import { nextRound, tick, type Action, type CheckPayment, type FetchInvoice } from './engine';
 import { answerQuestions, sendReminders, type Outbox } from './assistant';
 import { templateWriter, type Writer } from './messages';
 
@@ -46,6 +46,8 @@ export interface RunDeps {
    * payment, the next run reuses the preimage instead of paying again.
    */
   paid?: Map<string, string>;
+  /** Confirms payments made from any wallet by asking the recipient's provider. */
+  checkPayment?: CheckPayment;
   /** Writes reminders and answers; defaults to fixed templates. */
   writer?: Writer;
 }
@@ -65,7 +67,7 @@ export async function runOnce(
   if (!current) return [];
 
   const input = {
-    group: current.group, state: current.state, now, fetchInvoice,
+    group: current.group, state: current.state, now, fetchInvoice, checkPayment: deps.checkPayment,
     addresses: await ledger.addresses(published),
     receipts: await ledger.receipts(published),
   };
@@ -91,7 +93,7 @@ export async function runOnce(
       return preimage;
     };
     const second = await tick({ ...input, state: result.state, autoPay });
-    result = { ...second, actions: [...result.actions, ...second.actions] };
+    result = { ...second, actions: [...result.actions, ...second.actions], autoReceipts: [...result.autoReceipts, ...second.autoReceipts] };
   }
 
   // The receipt goes out before the round state that depends on it.

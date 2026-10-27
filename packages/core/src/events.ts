@@ -41,6 +41,7 @@ export function roundEvent(state: RoundState, key: GroupKey, createdAt = now()):
       deadline: state.deadline,
       paid: state.paid,
       invoices: state.invoices,
+      verify: state.verify,
       payoutOrder: state.payoutOrder,
       reminders: state.reminders,
       paidAt: state.paidAt,

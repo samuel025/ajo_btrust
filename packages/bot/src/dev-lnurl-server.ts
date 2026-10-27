@@ -30,10 +30,20 @@ export function devLnurlServer(nwcUrl: string, port: number): Promise<Server> {
         return send(res, 400, { status: 'ERROR', reason: 'invalid amount' });
       }
       try {
-        const { invoice } = await wallet.makeInvoice({ amount, description: 'ajo contribution' });
-        return send(res, 200, { pr: invoice, routes: [] });
+        const { invoice, payment_hash: hash } = await wallet.makeInvoice({ amount, description: 'ajo contribution' });
+        return send(res, 200, { pr: invoice, routes: [], verify: `${origin}/verify/${hash}` });
       } catch (e) {
         return send(res, 502, { status: 'ERROR', reason: (e as Error).message });
+      }
+    }
+    const verify = url.pathname.match(/^\/verify\/([0-9a-f]{64})$/);
+    if (verify) {
+      try {
+        const found = await wallet.lookupInvoice({ payment_hash: verify[1] });
+        const settled = found.state === 'settled';
+        return send(res, 200, { status: 'OK', settled, preimage: settled ? found.preimage : null, pr: found.invoice });
+      } catch (e) {
+        return send(res, 200, { status: 'ERROR', reason: (e as Error).message });
       }
     }
     send(res, 404, { status: 'ERROR', reason: 'not found' });
