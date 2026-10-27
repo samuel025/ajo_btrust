@@ -1,7 +1,7 @@
 import { nip19 } from 'nostr-tools';
 import { fetchInvoice, type GroupRef } from '@ajo/core';
 import { discoverGroups, nostrLedger } from './nostr-ledger';
-import { claudeWriter } from './ai';
+import { DEFAULT_GEMINI_MODEL, geminiWriter } from './ai';
 import { templateWriter } from './messages';
 import { payInvoice } from './pay';
 import { runOnce } from './runner';
@@ -25,8 +25,9 @@ const secretKey = decoded.data;
 const toHex = (key: string) => (key.startsWith('npub') ? (nip19.decode(key as `npub1${string}`).data as string) : key);
 const ledger = nostrLedger(relays, secretKey);
 const INTERVAL_MS = 30_000;
-const writer = process.env.ANTHROPIC_API_KEY
-  ? claudeWriter({ onError: (e) => console.error('assistant: Claude call failed, used a template instead:', (e as Error).message) })
+const geminiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+const writer = geminiKey
+  ? geminiWriter({ apiKey: geminiKey, onError: (e) => console.error('assistant: Gemini call failed, used a template instead:', (e as Error).message) })
   : templateWriter;
 /** Invoices this process has already paid, so a failed publish never leads to a second payment. */
 const paid = new Map<string, string>();
@@ -50,6 +51,6 @@ async function loop() {
 }
 
 console.log(`Coordinator running against ${relays.join(', ')}`);
-console.log(writer === templateWriter ? 'Assistant: built-in templates (set ANTHROPIC_API_KEY to use Claude)' : `Assistant: Claude (${process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5'})`);
+console.log(writer === templateWriter ? 'Assistant: built-in templates (set GEMINI_API_KEY to use Gemini)' : `Assistant: Gemini (${process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL})`);
 await loop();
 setInterval(loop, INTERVAL_MS);

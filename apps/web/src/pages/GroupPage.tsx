@@ -267,7 +267,12 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
   return (
     <section className="card">
       <h2>Ask the assistant</h2>
-      <p className="muted small">Ask in English, Pidgin, Yoruba or Hausa, for example "when is my turn?" or "who hasn't paid?". Only you and the coordinator can read this.</p>
+      <p className="muted small">Ask in English, Pidgin, Yoruba or Hausa, for example "when is my turn?" or "who hasn't paid?".</p>
+      <p className="muted small">
+        Questions are encrypted on the relay. But if the coordinator uses an AI service (Google Gemini) to write answers and reminders,
+        your question and the group's schedule are sent to it, and on Google's free tier they may be used to improve its products.
+        Don't put anything private in a question.
+      </p>
       {thread.slice(-4).map(({ question, answer }) => (
         <div key={question.id} className="qa">
           <p className="q">{question.text}</p>

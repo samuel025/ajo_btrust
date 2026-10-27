@@ -1,14 +1,14 @@
-// Calls the real Claude API with real group facts and prints what members would read.
-// Needs ANTHROPIC_API_KEY. Costs a few cents. Checks only what can be checked by machine:
+// Calls the real Gemini API with real group facts and prints what members would read.
+// Needs GEMINI_API_KEY (free tier is enough). Checks only what can be checked by machine:
 // a reply came back (not the template fallback), it's short, and it carries the right facts.
 import { openRound, LANGUAGES, type GroupDef, type Language } from '@ajo/core';
-import { claudeWriter } from '../src/ai';
+import { geminiWriter } from '../src/ai';
 import { buildContext } from '../src/assistant';
 import { formatDate, templateReminder } from '../src/messages';
 
-if (!process.env.ANTHROPIC_API_KEY) throw new Error('set ANTHROPIC_API_KEY');
+if (!process.env.GEMINI_API_KEY) throw new Error('set GEMINI_API_KEY');
 const fellBack: string[] = [];
-const writer = claudeWriter({ onError: (e) => fellBack.push((e as Error).message) });
+const writer = geminiWriter({ onError: (e) => fellBack.push((e as Error).message) });
 const check = (ok: boolean, msg: string) => { if (!ok) throw new Error(`FAILED: ${msg}`); console.log('ok  ', msg); };
 
 const [a, b, c] = ['aa', 'bb', 'cc'].map((s) => s.repeat(32));
@@ -24,7 +24,7 @@ for (const language of Object.keys(LANGUAGES) as Language[]) {
     const facts = { language, stage, round: 1, amountSats: 50_000, deadline: group.startDate };
     const text = await writer.reminder(facts);
     console.log(`[${language}/${stage}]`, text);
-    check(text !== templateReminder(facts), `${language}/${stage}: Claude wrote it (not the fallback)`);
+    check(text !== templateReminder(facts), `${language}/${stage}: Gemini wrote it (not the fallback)`);
     check(text.length < 400 && text.includes('50,000'), `${language}/${stage}: short, with the amount`);
   }
 }

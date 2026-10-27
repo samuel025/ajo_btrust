@@ -69,13 +69,18 @@ overdue, in the language they chose when joining (English, Pidgin, Yoruba or Hau
 also ask the assistant questions ("when is my turn?", "who hasn't paid?") on the group page.
 Reminders and answers are encrypted between the member and the coordinator.
 
-Without `ANTHROPIC_API_KEY` the bot uses fixed templates. With it, Claude writes the reminders and
+Without `GEMINI_API_KEY` the bot uses fixed templates. With it, Google Gemini writes the reminders and
 answers from group facts only (never keys, invoices or wallets), and any failure falls back to the
-templates. Set `ANTHROPIC_MODEL` to use a different model than the default `claude-opus-5-5`.
+templates. The default model is `gemini-2.5-flash`, which has a free tier that needs no billing; set
+`GEMINI_MODEL` to use another one (for example `gemini-2.5-flash-lite` or `gemini-3.1-flash-lite`).
+
+**Privacy:** with the assistant on, members' questions and the group's schedule are sent to Google.
+Google's free tier may use them to improve its products, so the app tells members not to put anything
+private in a question. Reminders and answers are still encrypted on the relay.
 
 ```
 npm run e2e:assistant -w @ajo/bot   # relay, templates
-npm run e2e:live-ai -w @ajo/bot     # needs ANTHROPIC_API_KEY, calls the real API
+npm run e2e:live-ai -w @ajo/bot     # needs GEMINI_API_KEY, calls the real API
 ```
 
 The Pidgin, Yoruba and Hausa template wording has not been reviewed by native speakers.
