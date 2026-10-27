@@ -4,6 +4,7 @@ import { loadActivity, loadGroup, publish, type GroupActivity } from '../lib/led
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
 import { formatDate, formatSats, frequencyLabel, recordText, shortKey, validateAddress } from '../lib/format';
+import { withNaira, type Rate } from '../lib/rate';
 import type { Ctx } from '../App';
 
 /** The first round that isn't complete, or undefined once everyone has been paid. */
@@ -34,7 +35,7 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
     <>
       <h1>{group.name}</h1>
       <p className="muted">
-        {formatSats(group.amountSats)} per round · {frequencyLabel[group.frequency]} · {group.payoutOrder.length} members
+        {withNaira(group.amountSats, ctx.rate)} per round · {frequencyLabel[group.frequency]} · {group.payoutOrder.length} members
       </p>
 
       {!isMember && <p className="error">You're not a member of this group.</p>}
@@ -114,7 +115,7 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
   return (
     <form className="card" onSubmit={join}>
       <h2>Join this group</h2>
-      <p className="muted">By joining you agree to pay {formatSats(group.amountSats)} each round. Members pay you at this Lightning address when it's your turn.</p>
+      <p className="muted">By joining you agree to pay {withNaira(group.amountSats, ctx.rate)} each round. Members pay you at this Lightning address when it's your turn.</p>
       <label>Your Lightning address
         <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="you@wallet.com" />
       </label>
@@ -174,7 +175,8 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   return (
     <section className="card">
       <h2>{heading}: pay {shortKey(state.recipient)}</h2>
-      <p>{formatSats(group.amountSats)} due by {formatDate(state.deadline)}.</p>
+      <p>{withNaira(group.amountSats, ctx.rate)} due by {formatDate(state.deadline)}.</p>
+      {ctx.rate && <p className="muted small">{rateNote(ctx.rate)}</p>}
       {activity.autopay && <p className="muted">Auto-pay is on, so the coordinator will pay this for you. You can also pay now.</p>}
       {!invoice && <p className="muted">Waiting for the coordinator to get your invoice from the recipient.</p>}
       {invoice && !ctx.settings.nwcUrl && <p className="muted">Connect your wallet in <a href="#/settings">Settings</a> to pay from here.</p>}
@@ -286,4 +288,10 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
       {error && <p className="error">{error}</p>}
     </section>
   );
+}
+
+/** The contribution is fixed in sats, so its naira value moves with the market. */
+function rateNote(rate: Rate): string {
+  const time = new Date(rate.fetchedAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' });
+  return `Naira is an estimate at the ${time} market rate. The amount is fixed in sats, so its value in naira changes.`;
 }

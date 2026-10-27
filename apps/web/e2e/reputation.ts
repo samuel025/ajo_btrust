@@ -93,6 +93,11 @@ try {
   const text = await page.evaluate(() => document.body.innerText);
   check(text.includes("1 didn't pay"), 'the schedule shows round 2 closed with one member not paying');
   check(text.includes('Paid 2 of 2'), 'C\'s own record reads "Paid 2 of 2"');
+  // the live naira estimate (fetched from public price sources by the page itself)
+  await page.waitForFunction(() => document.body.innerText.includes('≈ ₦'), { timeout: 30000 });
+  const withRate = await page.evaluate(() => document.body.innerText);
+  const naira = Number(withRate.match(/1,000 sats \(≈ ₦([\d,]+)\)/)?.[1]?.replace(/,/g, ''));
+  check(naira > 100 && naira < 100_000, `1,000 sats shows a plausible naira estimate (₦${naira})`);
   await page.screenshot({ path: `${shots}/5-reputation.png`, fullPage: true });
 } finally {
   await browser.close();

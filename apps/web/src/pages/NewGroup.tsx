@@ -3,6 +3,7 @@ import { nip19 } from 'nostr-tools';
 import { createGroupKey, groupEvent, type Frequency } from '@ajo/core';
 import { publish } from '../lib/ledger';
 import { parseMembers, toHexPubkey } from '../lib/format';
+import { formatNaira, nairaToSats, satsToNaira } from '../lib/rate';
 import type { Ctx } from '../App';
 
 const inAWeek = () => new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
@@ -52,6 +53,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
       <div className="grid2">
         <label>Contribution per round (sats)
           <input required inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          {ctx.rate && Number(amount) > 0 && <span className="muted small">≈ {formatNaira(satsToNaira(Number(amount), ctx.rate.ngnPerBtc))} today</span>}
         </label>
         <label>How often
           <select value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>
@@ -61,6 +63,15 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
           </select>
         </label>
       </div>
+      {ctx.rate && (
+        <label>Or set the contribution in naira
+          <input inputMode="numeric" placeholder="e.g. 5000" onChange={(e) => {
+            const naira = Number(e.target.value);
+            if (naira > 0) setAmount(String(nairaToSats(naira, ctx.rate!.ngnPerBtc)));
+          }} />
+          <span className="muted small">Converted to sats at today's rate. The group is fixed in sats, so the naira value will drift.</span>
+        </label>
+      )}
       <label>First round is due
         <input type="date" required value={start} onChange={(e) => setStart(e.target.value)} />
       </label>

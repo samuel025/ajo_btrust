@@ -1,6 +1,7 @@
 import { myGroups } from '../lib/ledger';
 import { usePoll } from '../lib/hooks';
-import { formatDate, formatSats, frequencyLabel, shortKey } from '../lib/format';
+import { formatDate, frequencyLabel, shortKey } from '../lib/format';
+import { withNaira } from '../lib/rate';
 import type { Ctx } from '../App';
 import { nip19 } from 'nostr-tools';
 
@@ -30,7 +31,7 @@ export function Home({ ctx }: { ctx: Ctx }) {
               <div className="muted small">{group.payoutOrder.length} members · {frequencyLabel[group.frequency]}</div>
             </div>
             <div className="right">
-              <strong>{formatSats(group.amountSats)}</strong>
+              <strong>{withNaira(group.amountSats, ctx.rate)}</strong>
               <div className="muted small">starts {formatDate(group.startDate)}</div>
             </div>
           </a>

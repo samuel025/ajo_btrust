@@ -104,3 +104,10 @@ the coordinator-signed round states and shown on the group page.
 ```
 npm run e2e:reputation -w @ajo/web   # collect-and-leave through the real relay and UI (needs vite on :5173)
 ```
+
+## Naira estimates
+
+Amounts are always in sats; the app shows an approximate naira value next to them. The rate is the
+median of Yadio, blockchain.info and CoinGecko (public, no keys), cached for 10 minutes. If none
+respond, only sats are shown. Organizers can set a contribution in naira, which is converted to sats
+once at the time; the group is fixed in sats, so its naira value drifts with the market.
