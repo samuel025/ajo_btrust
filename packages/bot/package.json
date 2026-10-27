@@ -16,7 +16,8 @@
     "e2e:live-autopay": "tsx --env-file=../../.env e2e/live-autopay.ts",
     "e2e:assistant": "tsx e2e/assistant.ts",
     "e2e:live-ai": "tsx --env-file=../../.env e2e/live-ai.ts",
-    "e2e:live-verify": "tsx --env-file=../../.env e2e/live-verify.ts"
+    "e2e:live-verify": "tsx --env-file=../../.env e2e/live-verify.ts",
+    "e2e:stale-round": "tsx e2e/stale-round.ts"
   },
   "dependencies": {
     "@ajo/core": "*",

@@ -99,7 +99,16 @@ export function nostrLedger(relays: string[], secretKey: Uint8Array): Ledger {
     async round(group, round) {
       const events = await query({ kinds: [KIND_ROUND], authors: [group.coordinator], '#d': [`${group.id}:${round}`] });
       const latest = events.sort((a, b) => b.created_at - a.created_at)[0];
-      return latest && parseRound(latest, group, keyFor(group.id));
+      if (!latest) return undefined;
+      try {
+        return parseRound(latest, group, keyFor(group.id));
+      } catch (e) {
+        // A leftover state that no longer fits the group (for example one opened while the group was
+        // still forming) must not stop the group for good: ignore it, and the round is opened afresh.
+        // Network errors are thrown by the query above and are not swallowed here.
+        console.warn(`ignoring the stored state of round ${round + 1} of ${group.id}: ${(e as Error).message}`);
+        return undefined;
+      }
     },
     // Replaceable events with equal timestamps can resolve to the older one, so a republish
     // must be strictly newer than what the relays already hold.
