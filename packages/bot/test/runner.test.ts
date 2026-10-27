@@ -148,5 +148,86 @@ describe('runOnce', () => {
       expect(actions).toContainEqual({ type: 'answered', count: 1 });
     });
   });
+
+  describe('the rhythm of the period', () => {
+    const DAY = 86_400;
+    const preimage = '22'.repeat(32);
+    const started = { ...group, startedAt: group.startDate - 4 * DAY };
+
+    async function setup() {
+      const { default: bolt11 } = await import('bolt11');
+      const { sha256 } = await import('@noble/hashes/sha256');
+      const { bytesToHex, hexToBytes, randomBytes } = await import('@noble/hashes/utils');
+      const nodeKey = bytesToHex(randomBytes(32));
+      const fetches: string[] = [];
+      const fetchInvoice = async (address: string) => {
+        fetches.push(address);
+        const encoded = bolt11.encode({
+          satoshis: 1000, timestamp: 1_800_000_000,
+          tags: [
+            { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
+            { tagName: 'description', data: 'ajo' },
+            { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
+          ],
+        });
+        return { invoice: bolt11.sign(encoded, nodeKey).paymentRequest!, verifyUrl: 'https://wallet.example/verify' };
+      };
+      const ledger = memoryLedger();
+      ledger.group = async () => started;
+      let writes = 0;
+      const publish = ledger.publishRound;
+      ledger.publishRound = async (s) => { writes++; return publish(s); };
+      let paid = false;
+      const deps = { checkPayment: async () => (paid ? { settled: true, preimage } : { settled: false }) };
+      const run = (now: number) => runOnce(ledger, ref, fetchInvoice, now, deps);
+      return { ledger, fetches, run, pay: () => { paid = true; }, writes: () => writes };
+    }
+
+    it('lets a round that was paid early wait for the next period before opening the next one', async () => {
+      const t = await setup();
+      await t.run(started.startedAt + 60); // round 1 opens with the group
+      expect(t.fetches).toEqual(['a@x.com']); // one invoice, fetched from round 1's recipient
+
+      t.pay(); // everyone pays on day one, days before the due date
+      await t.run(started.startedAt + 120);
+      expect(t.ledger.rounds.get(0)?.status).toBe('complete');
+      expect(t.ledger.rounds.get(1)).toMatchObject({ status: 'open', invoices: {}, opensAt: started.startDate });
+      expect(t.fetches).toHaveLength(1); // no invoice for round 2 yet
+
+      // days of waiting: nothing is issued, and nothing is republished while it waits
+      const writesBefore = t.writes();
+      for (const now of [started.startedAt + 3600, started.startDate - 3 * DAY, started.startDate - 60]) await t.run(now);
+      expect(t.fetches).toHaveLength(1);
+      expect(t.writes()).toBe(writesBefore);
+
+      // the due date arrives: round 2 opens and its invoices are issued
+      await t.run(started.startDate + 60);
+      expect(t.fetches).toEqual(['a@x.com', 'b@x.com']);
+      expect(Object.keys(t.ledger.rounds.get(1)!.invoices)).toHaveLength(1);
+    });
+
+    it('opens the next round straight away when the previous one was paid late', async () => {
+      const t = await setup();
+      await t.run(started.startDate + 3600); // already past round 1's due date, invoices issued
+      t.pay();
+      await t.run(started.startDate + 7200);
+      expect(t.ledger.rounds.get(0)?.status).toBe('complete');
+      await t.run(started.startDate + 7260);
+      expect(t.fetches).toHaveLength(2); // round 2's invoice, with no further wait: its opening time has passed
+    });
+
+    it('still answers questions while a round is waiting to open', async () => {
+      const t = await setup();
+      t.pay();
+      await t.run(started.startedAt + 60);
+      await t.run(started.startedAt + 120); // round 1 complete, round 2 now upcoming
+      const answered: string[] = [];
+      t.ledger.questions = async () => [{ id: 'q1', member: b, text: 'when do I pay?', at: 1 }];
+      t.ledger.publishAnswer = async (_g, q) => void answered.push(q.id);
+      const actions = await t.run(started.startedAt + 3600);
+      expect(answered).toEqual(['q1']);
+      expect(actions).toContainEqual({ type: 'answered', count: 1 });
+    });
+  });
 });
 

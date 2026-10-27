@@ -36,7 +36,10 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
       setBusy(true);
       await publish(ctx.settings.relay, ctx.signer, await groupEvent({
         id, name: name.trim(), amountSats, frequency, payoutOrder,
-        startDate: Math.floor(new Date(`${start}T09:00:00`).getTime() / 1000),
+        // The first round is due at 9:00 on the chosen day. The 10-minute testing period ignores the date.
+        startDate: frequency === 'testing' ? Math.floor(Date.now() / 1000) + 600 : Math.floor(new Date(`${start}T09:00:00`).getTime() / 1000),
+        // With a list of members the group starts now; with invite links it starts when the organizer says so.
+        startedAt: mode === 'npubs' ? Math.floor(Date.now() / 1000) : undefined,
         coordinator: toHexPubkey(coordinator),
         forming: mode === 'invite' || undefined,
       }, createGroupKey(), ctx.signer.cipher));
@@ -63,6 +66,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
             <option value="weekly">Weekly</option>
             <option value="biweekly">Every two weeks</option>
             <option value="monthly">Monthly</option>
+            {import.meta.env.DEV && <option value="testing">Every 10 minutes (testing only)</option>}
           </select>
         </label>
       </div>

@@ -152,3 +152,17 @@ bot's key is the identity of every group it runs, and a lost key cannot be recov
 
 Tested locally on plain http (full invite-and-pay flow against the hosted build). Not tested: a real
 domain with HTTPS, or a bot restart under load.
+
+## Rounds follow the calendar
+
+Each round has a time it *opens* and a time it is *due*. Round 1 opens when the organizer starts the
+group; every later round opens when the previous one falls due, and is due one period after that.
+Members can pay any time in a round's window, and the collector receives each payment as it comes in
+(there is no pot to hold). If everyone pays round 1 on day one, round 2 is still announced ("opens
+Nov 3, 9:00 AM") and no invoices are issued until then, so a ten-round cycle takes ten periods, not an
+afternoon. If a round is paid after its due date, the next one opens straight away. Due times are
+9:00 AM in the organizer's timezone, shown with the time and timezone. Groups created before this
+change have no start time and keep the old behaviour (each round opens as soon as the last closes).
+
+For trying a whole cycle in one sitting, the development build offers a 10-minute period ("Every 10
+minutes (testing only)"); it is not offered in a built, hosted app.

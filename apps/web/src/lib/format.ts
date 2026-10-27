@@ -27,10 +27,23 @@ export const formatSats = (sats: number) => `${sats.toLocaleString('en')} sats`;
 export const formatDate = (unix: number) =>
   new Date(unix * 1000).toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' });
 
+/** A moment, with its time and the viewer's timezone: a due date is a time, not just a day. */
+export const formatDateTime = (unix: number) =>
+  new Date(unix * 1000).toLocaleString('en', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+
+/** The next 9:00 AM in the viewer's timezone that is at least `leadMs` away, as unix seconds. */
+export function nextNineAm(nowMs: number, leadMs = 3_600_000): number {
+  const d = new Date(nowMs);
+  d.setHours(9, 0, 0, 0);
+  while (d.getTime() < nowMs + leadMs) d.setDate(d.getDate() + 1);
+  return Math.floor(d.getTime() / 1000);
+}
+
 export const frequencyLabel: Record<Frequency, string> = {
   weekly: 'Every week',
   biweekly: 'Every two weeks',
   monthly: 'Every month',
+  testing: 'Every 10 minutes (testing)',
 };
 
 export function validateAddress(address: string): string | undefined {

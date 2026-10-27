@@ -39,6 +39,7 @@ export function roundEvent(state: RoundState, key: GroupKey, createdAt = now()):
     content: seal(key, {
       recipient: state.recipient,
       deadline: state.deadline,
+      opensAt: state.opensAt,
       paid: state.paid,
       invoices: state.invoices,
       verify: state.verify,

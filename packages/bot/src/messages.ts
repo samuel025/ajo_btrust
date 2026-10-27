@@ -6,8 +6,9 @@ export const shortKey = (hex: string) => {
   return `${npub.slice(0, 9)}…${npub.slice(-4)}`;
 };
 
+/** A date and time in Lagos time, e.g. "Oct 30, 9:00 AM GMT+1": a due date is a moment, not just a day. */
 export const formatDate = (unix: number) =>
-  new Date(unix * 1000).toLocaleDateString('en', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' });
+  new Date(unix * 1000).toLocaleString('en', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Lagos', timeZoneName: 'short' });
 
 export interface ReminderFacts {
   language: Language;

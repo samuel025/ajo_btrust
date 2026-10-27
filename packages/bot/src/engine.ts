@@ -1,5 +1,5 @@
 import {
-  isFinished, isRoundComplete, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
+  isFinished, isRoundComplete, isUpcoming, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
   type GroupDef, type Receipt, type ReminderStage, type RoundState,
 } from '@ajo/core';
 
@@ -61,6 +61,10 @@ export const DEFAULT_AFTER_SECONDS = 7 * 86_400;
  */
 export async function tick(input: TickInput): Promise<TickResult> {
   const { group, receipts, now } = input;
+
+  // A round that hasn't opened yet is only announced: no invoices, payments or reminders until then.
+  // This is what keeps a cycle to the rhythm of its period instead of running as fast as people pay.
+  if (isUpcoming(input.state, now)) return { group, state: input.state, actions: [], autoReceipts: [] };
   const grace = input.graceSeconds ?? DEFAULT_GRACE_SECONDS;
   const actions: Action[] = [];
   const autoReceipts: Receipt[] = [];

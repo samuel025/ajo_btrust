@@ -3,6 +3,7 @@ import type { Frequency, GroupDef, RoundState } from './types';
 const DAY = 86_400;
 
 function addPeriods(start: number, frequency: Frequency, n: number): number {
+  if (frequency === 'testing') return start + n * 600;
   if (frequency === 'weekly') return start + n * 7 * DAY;
   if (frequency === 'biweekly') return start + n * 14 * DAY;
   const d = new Date(start * 1000);
@@ -22,6 +23,20 @@ export function roundDeadline(group: GroupDef, round: number): number {
   return addPeriods(group.startDate, group.frequency, round);
 }
 
+/**
+ * When members can start paying a round. Round 1 opens when the organizer starts the group; every
+ * later round opens when the previous one falls due, so a cycle keeps the rhythm of its period even
+ * if everyone pays early. A group with no start time (older groups) opens at once.
+ */
+export function roundOpensAt(group: GroupDef, round: number): number {
+  return round === 0 ? (group.startedAt ?? 0) : roundDeadline(group, round - 1);
+}
+
+/** True while a round is announced but members can't pay it yet. */
+export function isUpcoming(state: RoundState, now: number): boolean {
+  return now < (state.opensAt ?? 0);
+}
+
 export function recipientForRound(group: GroupDef, round: number): string {
   const recipient = group.payoutOrder[round];
   if (recipient === undefined) throw new Error(`round ${round} is past the end of the cycle`);
@@ -34,6 +49,7 @@ export function openRound(group: GroupDef, round: number): RoundState {
     round,
     recipient: recipientForRound(group, round),
     deadline: roundDeadline(group, round),
+    opensAt: roundOpensAt(group, round),
     paid: [],
     invoices: {},
     payoutOrder: group.payoutOrder,

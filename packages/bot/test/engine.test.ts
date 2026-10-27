@@ -258,3 +258,26 @@ describe('payments from any wallet (LNURL verify)', () => {
     expect(autoPaid).toBe(false);
   });
 });
+
+describe('rounds that have not opened yet', () => {
+  it('issues nothing, checks nothing and reminds nobody until the round opens', async () => {
+    const opensAt = group.startDate - 3 * 86_400;
+    const upcoming = { ...openRound(group, 0), opensAt };
+    let fetched = 0;
+    const counting: FetchInvoice = async (address, sats) => { fetched++; return fetchInvoice(address, sats); };
+    const early = await tick({ group, state: upcoming, addresses, receipts: [], fetchInvoice: counting, checkPayment: async () => { throw new Error('should not be asked'); }, now: opensAt - 1 });
+    expect(early).toEqual({ group, state: upcoming, actions: [], autoReceipts: [] });
+    expect(fetched).toBe(0);
+
+    const open = await tick({ group, state: upcoming, addresses, receipts: [], fetchInvoice: counting, now: opensAt });
+    expect(Object.keys(open.state.invoices).sort()).toEqual([b, c]);
+    expect(fetched).toBe(2);
+  });
+
+  it('does not remind about a round that is not open, even one that falls due within a day', async () => {
+    const opensAt = group.startDate; // opens at the deadline: absurd, but it must still wait
+    const upcoming = { ...openRound(group, 0), opensAt };
+    const result = await tick({ group, state: upcoming, addresses, receipts: [], fetchInvoice, now: group.startDate - 3600 });
+    expect(result.actions).toEqual([]);
+  });
+});

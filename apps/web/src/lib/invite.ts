@@ -13,7 +13,7 @@ export interface Invite {
   frequency: Frequency;
 }
 
-const FREQUENCIES: Frequency[] = ['weekly', 'biweekly', 'monthly'];
+const FREQUENCIES: Frequency[] = ['weekly', 'biweekly', 'monthly', 'testing'];
 
 /** The hash route for an invite, e.g. "/invite/<organizer>/<id>?n=Office&a=50000&f=weekly". */
 export function inviteRoute(invite: Invite): string {

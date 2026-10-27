@@ -1,5 +1,5 @@
 import {
-  isFinished, openRound, type GroupDef, type GroupRef, type Receipt, type RoundState,
+  isFinished, isUpcoming, openRound, type GroupDef, type GroupRef, type Receipt, type RoundState,
 } from '@ajo/core';
 import { nextRound, tick, type Action, type CheckPayment, type FetchInvoice } from './engine';
 import { answerQuestions, sendReminders, type Outbox } from './assistant';
@@ -27,13 +27,13 @@ export interface Ledger extends Outbox {
  * The first round that isn't complete, with the group as it stands then. A deferred recipient
  * changes the payout order, which each round's state records, so later rounds follow it.
  */
-async function currentRound(ledger: Ledger, group: GroupDef): Promise<{ state: RoundState; group: GroupDef } | undefined> {
+async function currentRound(ledger: Ledger, group: GroupDef): Promise<{ state: RoundState; group: GroupDef; stored: boolean } | undefined> {
   let effective = group;
   for (let n = 0; !isFinished(group, n); n++) {
     const state = await ledger.round(group, n);
-    if (!state) return { state: openRound(effective, n), group: effective };
+    if (!state) return { state: openRound(effective, n), group: effective, stored: false };
     if (state.payoutOrder) effective = { ...effective, payoutOrder: state.payoutOrder };
-    if (state.status !== 'complete') return { state, group: effective };
+    if (state.status !== 'complete') return { state, group: effective, stored: true };
   }
   return undefined;
 }
@@ -74,6 +74,14 @@ export async function runOnce(
     receipts: await ledger.receipts(published),
   };
   const writer = deps.writer ?? templateWriter;
+
+  // A round that hasn't opened yet is announced once, so members can see when it opens, and then
+  // left alone: nothing is issued or paid, and nothing is republished every few seconds.
+  if (isUpcoming(current.state, now)) {
+    if (!current.stored) await ledger.publishRound(current.state);
+    return answerOnly(ledger, current.group, current.state, writer);
+  }
+
   const grants = deps.pay ? await ledger.grants(published) : {};
   let result = await tick(input);
 
@@ -107,12 +115,19 @@ export async function runOnce(
   }
 
   // Questions come last and can never hold up money or the round: a failure is reported, not thrown.
-  try {
-    const open = result.state.status === 'open' ? result.state : current.state;
-    const answered = await answerQuestions(ledger, result.group, open, writer, new Set(Object.keys(grants)));
-    if (answered) result.actions.push({ type: 'answered', count: answered });
-  } catch (e) {
-    result.actions.push({ type: 'assistant-error', reason: (e as Error).message });
-  }
+  const open = result.state.status === 'open' ? result.state : current.state;
+  result.actions.push(...(await answerSafely(ledger, result.group, open, writer, new Set(Object.keys(grants)))));
   return result.actions;
 }
+
+/** Answers pending questions; a failure becomes an action instead of an error. */
+async function answerSafely(ledger: Ledger, group: GroupDef, state: RoundState, writer: Writer, autopaying: Set<string>): Promise<Action[]> {
+  try {
+    const answered = await answerQuestions(ledger, group, state, writer, autopaying);
+    return answered ? [{ type: 'answered', count: answered }] : [];
+  } catch (e) {
+    return [{ type: 'assistant-error', reason: (e as Error).message }];
+  }
+}
+
+const answerOnly = (ledger: Ledger, group: GroupDef, state: RoundState, writer: Writer) => answerSafely(ledger, group, state, writer, new Set());

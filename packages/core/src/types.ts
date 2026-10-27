@@ -1,4 +1,5 @@
-export type Frequency = 'weekly' | 'biweekly' | 'monthly';
+/** `testing` is a 10-minute period, offered only in development builds so a whole cycle can be tried in one sitting. */
+export type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'testing';
 
 export interface GroupDef {
   /** Stable id, used as the `d` tag of the group event. */
@@ -14,6 +15,8 @@ export interface GroupDef {
   coordinator: string;
   /** True while the organizer is still adding members from invite links. The coordinator ignores a forming group. */
   forming?: boolean;
+  /** Unix seconds when the group was started. The first round opens then; each later round opens when the previous one is due. */
+  startedAt?: number;
 }
 
 /** A group is addressed by its organizer and id, so nobody else can publish a lookalike. */
@@ -53,6 +56,8 @@ export interface RoundState {
    * one per payer. A receipt only counts if it settles the payer's invoice here.
    */
   invoices: Record<string, string>;
+  /** Unix seconds when members can start paying this round. Before it, the round is only announced. */
+  opensAt?: number;
   /** The payout order in force this round; differs from the group's once a recipient is deferred. */
   payoutOrder?: string[];
   /** The latest reminder each member has been sent this round, so none is sent twice. */

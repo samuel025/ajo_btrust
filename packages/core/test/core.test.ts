@@ -4,7 +4,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
-  parseRequest, requestEvent, checkVerify, standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
+  isUpcoming, roundOpensAt, parseRequest, requestEvent, checkVerify, standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
@@ -50,6 +50,47 @@ describe('schedule', () => {
 
   it('defers a recipient to the end of the order', () => {
     expect(deferRecipient(group, 0).payoutOrder).toEqual([pk(b), pk(c), pk(a)]);
+  });
+});
+
+describe('when rounds open', () => {
+  const started = { ...group, startedAt: group.startDate - 3 * 86_400 };
+  const DAY = 86_400;
+
+  it('opens round 1 when the group starts and every later round when the previous one is due', () => {
+    expect(roundOpensAt(started, 0)).toBe(started.startedAt);
+    expect(roundOpensAt(started, 1)).toBe(roundDeadline(started, 0));
+    expect(roundOpensAt(started, 2)).toBe(roundDeadline(started, 1));
+    expect(roundOpensAt(started, 1)).toBe(started.startDate);
+    expect(roundOpensAt(started, 2)).toBe(started.startDate + 7 * DAY);
+  });
+
+  it('follows the period: biweekly, monthly and the 10-minute testing period', () => {
+    expect(roundOpensAt({ ...started, frequency: 'biweekly' }, 2)).toBe(started.startDate + 14 * DAY);
+    const monthly = { ...started, frequency: 'monthly' as const, startDate: Date.UTC(2026, 0, 31, 9) / 1000 };
+    expect(roundOpensAt(monthly, 1)).toBe(monthly.startDate);
+    expect(roundDeadline(monthly, 1)).toBeGreaterThan(monthly.startDate + 27 * DAY);
+    const testing = { ...started, frequency: 'testing' as const };
+    expect(roundDeadline(testing, 3) - roundDeadline(testing, 2)).toBe(600);
+  });
+
+  it('stamps the opening time on a round, and an older group with no start time opens at once', () => {
+    expect(openRound(started, 1).opensAt).toBe(started.startDate);
+    expect(openRound(group, 0).opensAt).toBe(0);
+    expect(isUpcoming(openRound(group, 0), 5)).toBe(false);
+  });
+
+  it('is upcoming exactly until its opening time', () => {
+    const state = openRound(started, 1);
+    expect(isUpcoming(state, started.startDate - 1)).toBe(true);
+    expect(isUpcoming(state, started.startDate)).toBe(false);
+    expect(isUpcoming({ ...state, opensAt: undefined }, 0)).toBe(false);
+  });
+
+  it('survives the trip through an encrypted round event', () => {
+    const key = createGroupKey();
+    const state = openRound(started, 1);
+    expect(parseRound(finalizeEvent(roundEvent(state, key), bot), started, key).opensAt).toBe(started.startDate);
   });
 });
 

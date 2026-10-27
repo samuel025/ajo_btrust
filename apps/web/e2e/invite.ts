@@ -116,6 +116,13 @@ try {
   await guest.text('Complete');
   await guest.page.screenshot({ path: `${shots}/10-guest-paid.png` });
   check(true, "the guest's page shows round 1 complete and their payment on record");
+
+  // Round 1 was paid within minutes, but round 2 must wait for its period: both people are told when it opens
+  await guest.text('Round 2 opens');
+  await org.text('Round 2 opens');
+  await org.text('You can pay from');
+  await org.page.screenshot({ path: `${shots}/11-round2-waits.png` });
+  check(true, 'round 2 is announced with its opening date instead of opening at once');
 } finally {
   await browser.close();
   server.close();

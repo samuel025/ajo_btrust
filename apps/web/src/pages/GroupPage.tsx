@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { LANGUAGES, standings, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
+import { LANGUAGES, isUpcoming, roundOpensAt, standings, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
 import { loadActivity, loadGroup, publish, publishGroupUpdate, type GroupActivity } from '../lib/ledger';
 import { inviteLink } from '../lib/invite';
 import { clearPending, loadPending } from '../lib/pending';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
-import { formatDate, formatSats, frequencyLabel, recordText, shortKey, validateAddress } from '../lib/format';
+import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress } from '../lib/format';
 import { withNaira, type Rate } from '../lib/rate';
 import { InvoiceQr } from '../components/InvoiceQr';
 import type { Ctx } from '../App';
@@ -81,8 +81,8 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
                 <tr key={n} className={n === current ? 'current' : undefined}>
                   <td>{n + 1}</td>
                   <td>{shortKey(recipient)}{recipient === me && <span className="tag">you</span>}</td>
-                  <td>{formatDate(state?.deadline ?? roundDeadline(group, n))}</td>
-                  <td>{state?.status === 'complete' ? `Complete${state.defaulted?.length ? ` · ${state.defaulted.length} didn't pay` : ''}` : state ? `${state.paid.length} of ${owing}` : '—'}</td>
+                  <td>{formatDateTime(state?.deadline ?? roundDeadline(group, n))}</td>
+                  <td>{paidCell(group, n, state, owing)}</td>
                 </tr>
               );
             })}
@@ -111,6 +111,15 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
       </ul>
     </>
   );
+}
+
+/** What the "Paid" column says about a round: done, in progress, or when it opens. */
+function paidCell(group: GroupDef, n: number, state: RoundState | undefined, owing: number): string {
+  const now = Math.floor(Date.now() / 1000);
+  if (state?.status === 'complete') return `Complete${state.defaulted?.length ? ` · ${state.defaulted.length} didn't pay` : ''}`;
+  const opensAt = state?.opensAt ?? roundOpensAt(group, n);
+  if (opensAt > now) return `Opens ${formatDateTime(opensAt)}`;
+  return state ? `${state.paid.length} of ${owing}` : '—';
 }
 
 function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef; groupKey: GroupKey; onDone: () => void }) {
@@ -166,6 +175,19 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
 
   if (!state) return <section className="card"><h2>{heading}</h2><p className="muted">Waiting for the coordinator to open this round.</p></section>;
 
+  if (isUpcoming(state, Math.floor(Date.now() / 1000))) {
+    return (
+      <section className="card">
+        <h2>{heading} opens {formatDateTime(state.opensAt!)}</h2>
+        <p>
+          {state.recipient === me
+            ? `You'll be paid in this round. Members can start paying you when it opens, and it's due ${formatDateTime(state.deadline)}.`
+            : `You'll pay ${shortKey(state.recipient)} ${withNaira(group.amountSats, ctx.rate)} in this round. You can pay from ${formatDateTime(state.opensAt!)}, and it's due ${formatDateTime(state.deadline)}.`}
+        </p>
+      </section>
+    );
+  }
+
   if (state.recipient === me) {
     return (
       <section className="card">
@@ -216,7 +238,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   return (
     <section className="card">
       <h2>{heading}: pay {shortKey(state.recipient)}</h2>
-      <p>{withNaira(group.amountSats, ctx.rate)} due by {formatDate(state.deadline)}.</p>
+      <p>{withNaira(group.amountSats, ctx.rate)} due by {formatDateTime(state.deadline)}.</p>
       {ctx.rate && <p className="muted small">{rateNote(ctx.rate)}</p>}
       {activity.autopay && <p className="muted">Auto-pay is on, so the coordinator will pay this for you. You can also pay now.</p>}
       {!invoice && <p className="muted">Waiting for the coordinator to get your invoice from the recipient.</p>}
@@ -388,8 +410,13 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* the link is in the box to copy by hand */ }
   };
 
-  // The schedule can't start in the past: if the chosen first date is about to pass, move it back a day.
-  const start = () => update({ ...group, forming: undefined, startDate: Math.max(group.startDate, Math.floor(Date.now() / 1000) + 86_400) });
+  // Round 1 opens now. If the first due date the organizer chose has passed, or is under an hour away,
+  // the first due time moves to the next 9:00 AM. (The 10-minute testing period is due in 10 minutes.)
+  const start = () => {
+    const nowMs = Date.now();
+    const startDate = group.frequency === 'testing' ? Math.floor(nowMs / 1000) + 600 : Math.max(group.startDate, nextNineAm(nowMs));
+    return update({ ...group, forming: undefined, startedAt: Math.floor(nowMs / 1000), startDate });
+  };
 
   return (
     <section className="card">
@@ -412,7 +439,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
       </ul>
 
       <h2>Start the group</h2>
-      <p className="muted small">{group.payoutOrder.length} in the group so far, in the order they were added (the first is paid first). Starting fixes who is in and begins the schedule, and you can't add people after.</p>
+      <p className="muted small">{group.payoutOrder.length} in the group so far, in the order they were added (the first is paid first). Starting fixes who is in and opens round 1 for payment right away. Each later round opens when the one before it is due. You can't add people after.</p>
       {error && <p className="error">{error}</p>}
       <button disabled={busy || group.payoutOrder.length < 2} onClick={start}>Start the group</button>
       {group.payoutOrder.length < 2 && <p className="muted small">You need at least two people to start.</p>}
