@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { LANGUAGES, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
+import { LANGUAGES, standings, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
 import { loadActivity, loadGroup, publish, type GroupActivity } from '../lib/ledger';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
-import { formatDate, formatSats, frequencyLabel, shortKey, validateAddress } from '../lib/format';
+import { formatDate, formatSats, frequencyLabel, recordText, shortKey, validateAddress } from '../lib/format';
 import type { Ctx } from '../App';
 
 /** The first round that isn't complete, or undefined once everyone has been paid. */
@@ -28,6 +28,7 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
   const group = activity ? effectiveGroup(published, activity.rounds) : published;
   const isMember = group.payoutOrder.includes(me);
   const current = activity ? currentRound(group, activity.rounds) : undefined;
+  const record = activity ? standings(group, [...activity.rounds.values()]) : undefined;
 
   return (
     <>
@@ -60,7 +61,7 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
                 <td>{n + 1}</td>
                 <td>{shortKey(recipient)}{recipient === me && <span className="tag">you</span>}</td>
                 <td>{formatDate(state?.deadline ?? roundDeadline(group, n))}</td>
-                <td>{state?.status === 'complete' ? 'Complete' : state ? `${state.paid.length} of ${owing}` : '—'}</td>
+                <td>{state?.status === 'complete' ? `Complete${state.defaulted?.length ? ` · ${state.defaulted.length} didn't pay` : ''}` : state ? `${state.paid.length} of ${owing}` : '—'}</td>
               </tr>
             );
           })}
@@ -69,12 +70,21 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
 
       <h2>Members</h2>
       <ul className="members">
-        {group.payoutOrder.map((m) => (
-          <li key={m}>
-            <span>{shortKey(m)}{m === me && <span className="tag">you</span>}</span>
-            <span className="muted small">{activity?.addresses[m] ?? 'not joined yet'}</span>
-          </li>
-        ))}
+        {group.payoutOrder.map((m) => {
+          const r = record?.[m];
+          return (
+            <li key={m}>
+              <span>
+                {shortKey(m)}{m === me && <span className="tag">you</span>}
+                <div className="muted small">{activity?.addresses[m] ?? 'not joined yet'}</div>
+              </span>
+              <span className="right small">
+                {r && <div className={r.defaulted ? 'warn' : 'muted'}>{recordText(r)}</div>}
+                {r?.collectedAndLeft && <div className="warn"><strong>Received a payout, then stopped paying</strong></div>}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </>
   );

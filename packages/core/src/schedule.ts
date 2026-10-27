@@ -41,9 +41,9 @@ export function openRound(group: GroupDef, round: number): RoundState {
   };
 }
 
-/** Members who owe a payment this round: everyone except the recipient who hasn't paid yet. */
+/** Members who still owe a payment this round: not the recipient, not paid, not already marked as defaulted. */
 export function unpaid(group: GroupDef, state: RoundState): string[] {
-  return group.payoutOrder.filter((m) => m !== state.recipient && !state.paid.includes(m));
+  return group.payoutOrder.filter((m) => m !== state.recipient && !state.paid.includes(m) && !state.defaulted?.includes(m));
 }
 
 export function isRoundComplete(group: GroupDef, state: RoundState): boolean {

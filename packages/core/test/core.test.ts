@@ -4,7 +4,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
-  answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
+  standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
@@ -168,6 +168,49 @@ describe('assistant messages', () => {
     const key = createGroupKey();
     const join = parseJoin(finalizeEvent(joinEvent({ groupId: group.id, lightningAddress: 'a@x.com', language: 'yo' }, key), a), key);
     expect(join.language).toBe('yo');
+  });
+});
+
+describe('standings', () => {
+  const done = (round: number, extra: Partial<ReturnType<typeof openRound>> = {}) =>
+    ({ ...openRound(group, round), status: 'complete' as const, ...extra });
+  const d0 = group.startDate; // round 0 deadline; recipient a
+  const d1 = roundDeadline(group, 1); // recipient b
+
+  it('counts on-time, late and defaulted payments and rounds received', () => {
+    const rounds = [
+      done(0, { paid: [pk(b), pk(c)], paidAt: { [pk(b)]: d0 - 10, [pk(c)]: d0 + ON_TIME_SLACK_SECONDS + 1 } }),
+      done(1, { paid: [pk(a)], paidAt: { [pk(a)]: d1 - 5 }, defaulted: [pk(c)] }),
+    ];
+    const s = standings(group, rounds);
+    expect(s[pk(a)]).toMatchObject({ owed: 1, onTime: 1, late: 0, defaulted: 0, received: 1, collectedAndLeft: false });
+    expect(s[pk(b)]).toMatchObject({ owed: 1, onTime: 1, late: 0, received: 1 });
+    expect(s[pk(c)]).toMatchObject({ owed: 2, onTime: 0, late: 1, defaulted: 1, received: 0 });
+  });
+
+  it('flags a member who received a payout and then defaulted', () => {
+    const rounds = [
+      done(0, { paid: [pk(b), pk(c)], paidAt: { [pk(b)]: d0, [pk(c)]: d0 } }),
+      done(1, { paid: [pk(c)], paidAt: { [pk(c)]: d1 }, defaulted: [pk(a)] }),
+    ];
+    expect(standings(group, rounds)[pk(a)]).toMatchObject({ received: 1, defaulted: 1, collectedAndLeft: true });
+    expect(standings(group, rounds)[pk(c)].collectedAndLeft).toBe(false);
+  });
+
+  it('does not flag a member who defaulted before ever receiving', () => {
+    const rounds = [done(0, { paid: [pk(b)], paidAt: { [pk(b)]: d0 }, defaulted: [pk(c)] }), done(1, { paid: [pk(a), pk(c)], paidAt: { [pk(a)]: d1, [pk(c)]: d1 } })];
+    expect(standings(group, rounds)[pk(c)]).toMatchObject({ defaulted: 1, received: 0, collectedAndLeft: false });
+  });
+
+  it('ignores rounds that have not finished', () => {
+    const open = { ...openRound(group, 0), paid: [pk(b)], paidAt: { [pk(b)]: d0 } };
+    expect(Object.values(standings(group, [open])).every((x) => x.owed === 0 && x.received === 0)).toBe(true);
+  });
+
+  it('survives the trip through an encrypted round event', () => {
+    const key = createGroupKey();
+    const state = { ...openRound(group, 0), paidAt: { [pk(b)]: 123 }, defaulted: [pk(c)] };
+    expect(parseRound(finalizeEvent(roundEvent(state, key), bot), group, key)).toMatchObject({ paidAt: { [pk(b)]: 123 }, defaulted: [pk(c)] });
   });
 });
 

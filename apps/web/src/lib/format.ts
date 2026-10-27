@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools';
-import type { Frequency } from '@ajo/core';
+import type { Frequency, Standing } from '@ajo/core';
 
 /** Accepts an npub or a 64-character hex pubkey. */
 export function toHexPubkey(input: string): string {
@@ -35,4 +35,17 @@ export const frequencyLabel: Record<Frequency, string> = {
 
 export function validateAddress(address: string): string | undefined {
   return /^[^@\s]+@[^@\s]+$/.test(address.trim()) ? undefined : 'Enter an address like name@wallet.com';
+}
+
+/** A member's record in this group, in plain words. */
+export function recordText(s: Standing): string {
+  if (s.owed === 0 && s.received === 0) return 'No finished rounds yet';
+  const parts: string[] = [];
+  if (s.owed > 0) {
+    const paid = s.onTime + s.late;
+    parts.push(`Paid ${paid} of ${s.owed}${s.late ? ` (${s.late} late)` : ''}`);
+  }
+  if (s.defaulted > 0) parts.push(`missed ${s.defaulted}`);
+  if (s.received > 0) parts.push(`received ${s.received}`);
+  return parts.join(' · ');
 }

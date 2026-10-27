@@ -79,3 +79,16 @@ npm run e2e:live-ai -w @ajo/bot     # needs ANTHROPIC_API_KEY, calls the real AP
 ```
 
 The Pidgin, Yoruba and Hausa template wording has not been reviewed by native speakers.
+
+## Defaults and reputation
+
+If a member who was given an invoice still hasn't paid a week after the deadline, and at least one
+other member's payment got through (so the recipient was reachable), the coordinator records them as
+having defaulted and closes the round so the group can continue. The recipient is short by that
+contribution, which is the risk of a non-custodial circle. Each member's record (paid on time, late,
+missed, rounds received, and whether they received a payout and then stopped paying) is computed from
+the coordinator-signed round states and shown on the group page.
+
+```
+npm run e2e:reputation -w @ajo/web   # collect-and-leave through the real relay and UI (needs vite on :5173)
+```

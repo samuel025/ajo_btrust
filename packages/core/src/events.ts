@@ -43,6 +43,8 @@ export function roundEvent(state: RoundState, key: GroupKey, createdAt = now()):
       invoices: state.invoices,
       payoutOrder: state.payoutOrder,
       reminders: state.reminders,
+      paidAt: state.paidAt,
+      defaulted: state.defaulted,
       status: state.status,
     }),
   };

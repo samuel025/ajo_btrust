@@ -11,6 +11,7 @@ export type AutoPay = (member: string, invoice: string) => Promise<string | unde
 export type Action =
   | { type: 'invoice-failed'; payer: string; reason: string }
   | { type: 'autopaid'; payer: string }
+  | { type: 'defaulted'; members: string[]; round: number }
   | { type: 'answered'; count: number }
   | { type: 'assistant-error'; reason: string }
   | { type: 'autopay-failed'; payer: string; reason: string }
@@ -32,6 +33,8 @@ export interface TickInput {
   now: number;
   /** Seconds past the deadline before a stuck recipient is deferred. */
   graceSeconds?: number;
+  /** Seconds past the deadline after which members who still haven't paid are marked as defaulted. */
+  defaultAfterSeconds?: number;
 }
 
 export interface TickResult {
@@ -43,6 +46,7 @@ export interface TickResult {
 }
 
 export const DEFAULT_GRACE_SECONDS = 48 * 3600;
+export const DEFAULT_AFTER_SECONDS = 7 * 86_400;
 
 /**
  * One coordinator step for the current round: issue invoices, count valid receipts,
@@ -53,7 +57,12 @@ export async function tick(input: TickInput): Promise<TickResult> {
   const grace = input.graceSeconds ?? DEFAULT_GRACE_SECONDS;
   const actions: Action[] = [];
   const autoReceipts: Receipt[] = [];
-  let state: RoundState = { ...input.state, invoices: { ...input.state.invoices }, paid: [...input.state.paid] };
+  let state: RoundState = {
+    ...input.state,
+    invoices: { ...input.state.invoices },
+    paid: [...input.state.paid],
+    paidAt: { ...input.state.paidAt },
+  };
 
   const recipientAddress = input.addresses[state.recipient];
   for (const payer of unpaid(group, state)) {
@@ -76,7 +85,10 @@ export async function tick(input: TickInput): Promise<TickResult> {
       amountSats: group.amountSats,
       recipientPaymentHash: parseInvoice(invoice).paymentHash,
     });
-    if (result.ok) state.paid.push(payer);
+    if (result.ok) {
+      state.paid.push(payer);
+      state.paidAt = { ...state.paidAt, [payer]: now };
+    }
     return result.ok;
   };
 
@@ -99,6 +111,19 @@ export async function tick(input: TickInput): Promise<TickResult> {
       } catch (e) {
         actions.push({ type: 'autopay-failed', payer, reason: (e as Error).message });
       }
+    }
+  }
+
+  // Someone who had an invoice and still hasn't paid a week after the deadline is recorded as having
+  // defaulted, and the round closes without them so the circle can go on. The recipient is short by
+  // their contribution; the record is the deterrent. Members with no invoice aren't at fault, and
+  // nobody is blamed unless another member's payment got through, which shows the recipient was
+  // reachable (otherwise an offline recipient would make every payer look like a defaulter).
+  if (state.paid.length > 0 && now > state.deadline + (input.defaultAfterSeconds ?? DEFAULT_AFTER_SECONDS)) {
+    const defaulting = unpaid(group, state).filter((m) => state.invoices[m]);
+    if (defaulting.length) {
+      state.defaulted = [...(state.defaulted ?? []), ...defaulting];
+      actions.push({ type: 'defaulted', members: defaulting, round: state.round });
     }
   }
 

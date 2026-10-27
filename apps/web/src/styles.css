@@ -52,3 +52,5 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
 .qa .q { font-weight: 600; }
 .askrow { display: flex; gap: 8px; margin-top: 12px; }
 .askrow input { margin-top: 0; }
+
+.warn { color: var(--error); }

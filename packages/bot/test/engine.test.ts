@@ -161,3 +161,47 @@ describe('reminders', () => {
     expect(result.actions.some((x) => x.type === 'remind')).toBe(false);
   });
 });
+
+describe('defaults and payment times', () => {
+  const issue = () => tick({ group, state: openRound(group, 0), addresses, receipts: [], fetchInvoice, now: group.startDate - 7 * 86_400 });
+  const receiptFor = (payer: string, state: Awaited<ReturnType<typeof issue>>['state']) =>
+    ({ groupId: 'g', round: 0, payer, recipient: a, invoice: state.invoices[payer]!, preimage: preimages.get(state.invoices[payer]!)! });
+
+  it('records when it first saw each payment', async () => {
+    const issued = await issue();
+    const seenAt = group.startDate - 1000;
+    const result = await tick({ group, state: issued.state, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice, now: seenAt });
+    expect(result.state.paidAt).toEqual({ [b]: seenAt });
+    const later = await tick({ group, state: result.state, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice, now: seenAt + 500 });
+    expect(later.state.paidAt).toEqual({ [b]: seenAt });
+  });
+
+  it('closes the round and marks a non-payer as defaulted a week after the deadline', async () => {
+    const issued = await issue();
+    const paidB = await tick({ group, state: issued.state, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice, now: group.startDate - 100 });
+    const early = await tick({ group, state: paidB.state, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice, now: group.startDate + 6 * 86_400 });
+    expect(early.state.status).toBe('open');
+    expect(early.state.defaulted).toBeUndefined();
+
+    const late = await tick({ group, state: paidB.state, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice, now: group.startDate + 8 * 86_400 });
+    expect(late.actions).toContainEqual({ type: 'defaulted', members: [c], round: 0 });
+    expect(late.state).toMatchObject({ status: 'complete', defaulted: [c] });
+  });
+
+  it('blames nobody when no payment got through, since the recipient may be unreachable', async () => {
+    const issued = await issue();
+    const result = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, now: group.startDate + 30 * 86_400 });
+    expect(result.state.status).toBe('open');
+    expect(result.state.defaulted).toBeUndefined();
+  });
+
+  it('never marks a member who had no invoice to pay', async () => {
+    const issued = await issue();
+    const paidB = await tick({ group, state: issued.state, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice, now: group.startDate - 100 });
+    const withoutC = { ...paidB.state, invoices: { [b]: paidB.state.invoices[b]! } };
+    const broken: FetchInvoice = async () => { throw new Error('offline'); };
+    const result = await tick({ group, state: withoutC, addresses, receipts: [receiptFor(b, issued.state)], fetchInvoice: broken, now: group.startDate + 8 * 86_400 });
+    expect(result.state.defaulted).toBeUndefined();
+    expect(result.state.status).toBe('open');
+  });
+});
