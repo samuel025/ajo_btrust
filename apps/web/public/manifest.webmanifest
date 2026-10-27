@@ -1,0 +1,9 @@
+{
+  "name": "Bitcoin Ajo",
+  "short_name": "Ajo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f7931a",
+  "icons": []
+}

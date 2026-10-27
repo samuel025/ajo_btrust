@@ -1,0 +1,9 @@
+{
+  "name": "bitcoin-ajo",
+  "private": true,
+  "license": "MIT",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "test": "npm test --workspaces --if-present"
+  }
+}

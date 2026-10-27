@@ -1,0 +1,29 @@
+{
+  "name": "@ajo/bot",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "e2e": "tsx e2e/round.ts",
+    "e2e:live": "tsx --env-file=../../.env e2e/live.ts",
+    "lnurl": "tsx --env-file=../../.env src/dev-lnurl-main.ts",
+    "keygen": "tsx src/keygen.ts"
+  },
+  "dependencies": {
+    "@ajo/core": "*",
+    "@getalby/sdk": "^9.0.0",
+    "nostr-tools": "^2.10.0"
+  },
+  "devDependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@types/node": "^26.6.5",
+    "bolt11": "^1.4.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
