@@ -1,0 +1,17 @@
+# SITE_ADDRESS is your domain (Caddy then gets and renews an HTTPS certificate by itself),
+# or ":80" to run on plain http, for example locally.
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# The relay, on the same domain, so the app needs no relay address. The relay only accepts
+	# WebSockets at its root, so /relay is stripped before forwarding.
+	handle_path /relay {
+		reverse_proxy relay:8080
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

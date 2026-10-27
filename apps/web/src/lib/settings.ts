@@ -7,8 +7,19 @@ export interface Settings {
 
 const KEY = 'ajo.settings';
 
+/**
+ * The Vite dev server talks to a relay on this machine. A built, hosted site serves its own relay at
+ * /relay on the same domain, so there is nothing to configure (and wss:// works because the page is https://).
+ */
+function defaultRelay(): string {
+  if (import.meta.env.VITE_RELAY) return import.meta.env.VITE_RELAY;
+  if (import.meta.env.DEV) return 'ws://localhost:7777';
+  const { protocol, host } = window.location;
+  return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/relay`;
+}
+
 const defaults: Settings = {
-  relay: import.meta.env.VITE_RELAY ?? 'ws://localhost:7777',
+  relay: defaultRelay(),
   coordinator: import.meta.env.VITE_COORDINATOR ?? '',
   nwcUrl: '',
 };

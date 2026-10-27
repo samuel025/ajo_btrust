@@ -3,3 +3,4 @@ dist
 .env
 .env.local
 Pasted image*.png
+deploy/.env

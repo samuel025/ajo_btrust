@@ -9,7 +9,7 @@ import { devLnurlServer, nostrLedger, payInvoice, runOnce, safeFetch } from '@aj
 
 const { NWC_PAYER, NWC_RECIPIENT } = process.env;
 if (!NWC_PAYER || !NWC_RECIPIENT) throw new Error('set NWC_PAYER and NWC_RECIPIENT');
-const relay = 'ws://localhost:7777';
+const relay = process.env.RELAY ?? 'ws://localhost:7777';
 const app = process.env.APP ?? 'http://localhost:5173';
 const shots = process.env.SHOTS ?? '.';
 const PORT = 3461;
@@ -40,7 +40,7 @@ try {
   // --- organizer
   const org = await open('organizer');
   await org.page.goto(`${app}/#/`);
-  await org.page.evaluate((c) => localStorage.setItem('ajo.settings', JSON.stringify({ relay: 'ws://localhost:7777', coordinator: c, nwcUrl: '' })), nip19.npubEncode(getPublicKey(botKey)));
+  await org.page.evaluate((c, r) => localStorage.setItem('ajo.settings', JSON.stringify({ relay: r, coordinator: c, nwcUrl: '' })), nip19.npubEncode(getPublicKey(botKey)), relay);
   await org.page.reload();
   await org.click('Create a test key');
   await org.text('Your groups');

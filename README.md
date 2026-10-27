@@ -130,3 +130,25 @@ through a guard that refuses private and local addresses.
 npm run e2e:invite -w @ajo/web         # two browser identities, a real payment from outside the app
 npm run e2e:live-verify -w @ajo/bot    # the bot confirming an outside payment through a verify link
 ```
+
+## Hosting it (one URL)
+
+Everything runs from one `docker compose` command: the relay, the coordinator bot and the web app
+behind Caddy, which gets and renews an HTTPS certificate for your domain by itself. The web app finds
+the relay on the same domain (`wss://your-domain/relay`), so nothing needs configuring for users.
+
+```
+npm run keygen -w @ajo/bot            # a key pair for the coordinator bot
+cp deploy/.env.example deploy/.env    # fill in SITE_ADDRESS, BOT_NSEC, COORDINATOR_NPUB, ORGANIZERS
+docker compose --env-file deploy/.env up -d --build
+```
+
+Point your domain's DNS at the server and open ports 80 and 443. Use `SITE_ADDRESS=:80` for a plain
+http trial. If the build stalls downloading packages, build the images one at a time:
+`COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file deploy/.env build`.
+
+Keep `deploy/.env` private: it holds the bot's secret key. Back it up somewhere safe, because the
+bot's key is the identity of every group it runs, and a lost key cannot be recovered.
+
+Tested locally on plain http (full invite-and-pay flow against the hosted build). Not tested: a real
+domain with HTTPS, or a bot restart under load.
