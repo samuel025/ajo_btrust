@@ -54,3 +54,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
 .askrow input { margin-top: 0; }
 
 .warn { color: var(--error); }
+
+.qr { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.qr img { border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.qr-actions { display: flex; flex-direction: column; gap: 8px; }

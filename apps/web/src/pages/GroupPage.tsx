@@ -5,6 +5,7 @@ import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
 import { formatDate, formatSats, frequencyLabel, recordText, shortKey, validateAddress } from '../lib/format';
 import { withNaira, type Rate } from '../lib/rate';
+import { InvoiceQr } from '../components/InvoiceQr';
 import type { Ctx } from '../App';
 
 /** The first round that isn't complete, or undefined once everyone has been paid. */
@@ -136,6 +137,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   const me = ctx.signer.pubkey;
   const [status, setStatus] = useState<'idle' | 'paying' | 'sent'>('idle');
   const [error, setError] = useState<string>();
+  const [proof, setProof] = useState('');
 
   if (round === undefined) return <section className="card"><h2>All done</h2><p>Every member has been paid. This cycle is complete.</p></section>;
   const state = activity.rounds.get(round);
@@ -156,16 +158,34 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   }
 
   const invoice = state.invoices[me];
+  const autoConfirm = !!state.verify?.[me];
+
+  const publishReceipt = async (preimage: string) => {
+    await publish(ctx.settings.relay, ctx.signer, receiptEvent({
+      groupId: group.id, round, payer: me, recipient: state.recipient, invoice: invoice!, preimage,
+    }, groupKey));
+    setStatus('sent');
+    onPaid();
+  };
+
   const pay = async () => {
     setError(undefined);
     setStatus('paying');
     try {
-      const preimage = await payInvoice(ctx.settings.nwcUrl, invoice!);
-      await publish(ctx.settings.relay, ctx.signer, receiptEvent({
-        groupId: group.id, round, payer: me, recipient: state.recipient, invoice: invoice!, preimage,
-      }, groupKey));
-      setStatus('sent');
-      onPaid();
+      await publishReceipt(await payInvoice(ctx.settings.nwcUrl, invoice!));
+    } catch (err) {
+      setError((err as Error).message);
+      setStatus('idle');
+    }
+  };
+
+  const submitProof = async () => {
+    setError(undefined);
+    const preimage = proof.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(preimage)) return setError('Payment proof is 64 characters of letters a-f and numbers. Your wallet shows it as the "preimage".');
+    setStatus('paying');
+    try {
+      await publishReceipt(preimage);
     } catch (err) {
       setError((err as Error).message);
       setStatus('idle');
@@ -179,7 +199,27 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       {ctx.rate && <p className="muted small">{rateNote(ctx.rate)}</p>}
       {activity.autopay && <p className="muted">Auto-pay is on, so the coordinator will pay this for you. You can also pay now.</p>}
       {!invoice && <p className="muted">Waiting for the coordinator to get your invoice from the recipient.</p>}
-      {invoice && !ctx.settings.nwcUrl && <p className="muted">Connect your wallet in <a href="#/settings">Settings</a> to pay from here.</p>}
+      {invoice && (
+        <>
+          <p><strong>Pay with any Lightning wallet</strong></p>
+          <InvoiceQr invoice={invoice} />
+          <p className="muted small">
+            {autoConfirm
+              ? 'Scan it or open it in your wallet. The coordinator confirms the payment by itself, usually within a minute.'
+              : "Scan it or open it in your wallet. This recipient's provider can't confirm payments by itself, so afterwards paste the payment proof below, or pay with a connected wallet."}
+          </p>
+          {!autoConfirm && (
+            <details>
+              <summary>I paid, and I have the payment proof</summary>
+              <label>Payment proof (preimage)
+                <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="64 letters and numbers" autoComplete="off" />
+              </label>
+              <button type="button" className="secondary" disabled={!proof.trim() || status === 'paying'} onClick={submitProof}>Submit proof</button>
+            </details>
+          )}
+          <p className="muted small">Or pay with a wallet connected in <a href="#/settings">Settings</a>:</p>
+        </>
+      )}
       {error && <p className="error">{error}</p>}
       <button disabled={!invoice || !ctx.settings.nwcUrl || status === 'paying'} onClick={pay}>
         {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}

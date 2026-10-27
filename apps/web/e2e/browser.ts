@@ -77,6 +77,9 @@ try {
   step('the assistant answered the question in the UI');
   await text('Pay 1,000 sats');
   await page.screenshot({ path: `${shots}/3-pay.png` });
+  await page.waitForSelector('img[alt="Lightning invoice QR code"]', { timeout: 15000 });
+  const qrOk = await page.evaluate(() => { const i = document.querySelector('img[alt="Lightning invoice QR code"]') as HTMLImageElement; return i.naturalWidth > 100; });
+  check(qrOk, 'the pay card shows a scannable QR code for the invoice');
   step('bot issued an invoice; Pay button is shown');
 
   await clickButton('Pay 1,000 sats');
