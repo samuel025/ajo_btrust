@@ -23,12 +23,23 @@ const ANSWER_SYSTEM = (context: AssistantContext) =>
 /** Sends a system prompt and a user message to a language model and returns its text reply. */
 export type Complete = (system: string, user: string) => Promise<string>;
 
+export interface WriterOptions {
+  onError?: (error: unknown) => void;
+  /**
+   * Languages in which the model may write reminders. Others use the fixed templates. Models can
+   * produce confident but wrong text in languages like Yoruba, so this is opt-in per language.
+   */
+  aiReminderLanguages?: Language[];
+}
+
 /**
  * Writes reminders and answers with any language model. On any failure (no key, network, quota,
  * blocked, cut off, empty or oversized reply) it falls back to the fixed templates, so a member
  * always gets a message.
  */
-export function llmWriter(complete: Complete, onError?: (error: unknown) => void): Writer {
+export function llmWriter(complete: Complete, options: WriterOptions = {}): Writer {
+  const { onError, aiReminderLanguages = ['en'] } = options;
+
   async function ask(system: string, user: string): Promise<string> {
     const text = (await complete(system, user)).trim();
     if (!text || text.length > MAX_REPLY_CHARS) throw new Error('unusable reply');
@@ -37,6 +48,7 @@ export function llmWriter(complete: Complete, onError?: (error: unknown) => void
 
   return {
     async reminder(facts: ReminderFacts) {
+      if (!aiReminderLanguages.includes(facts.language)) return templateReminder(facts);
       try {
         return await ask(REMINDER_SYSTEM(facts.language), JSON.stringify({
           stage: facts.stage, round: facts.round, amount: formatSats(facts.amountSats),
@@ -58,22 +70,52 @@ export function llmWriter(complete: Complete, onError?: (error: unknown) => void
   };
 }
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+/**
+ * Tried in order. Free-tier daily quotas are per model, so a second model roughly doubles what the
+ * free tier allows. Both were confirmed to exist for a free key; check AI Studio for what yours has.
+ */
+export const DEFAULT_GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
 
 export interface GeminiOptions {
   apiKey?: string;
-  /** Defaults to GEMINI_MODEL, then gemini-2.5-flash (a free-tier model). */
+  /** One model, or the first of the list. Defaults to GEMINI_MODELS / GEMINI_MODEL, then the defaults above. */
   model?: string;
+  models?: string[];
   client?: Pick<GoogleGenAI, 'models'>;
   onError?: (error: unknown) => void;
+  aiReminderLanguages?: Language[];
+  /** Minimum gap between calls, to stay inside the free tier's per-minute limit. */
+  minIntervalMs?: number;
+  /** How long to skip a model after a quota error that doesn't say when to retry. */
+  cooldownMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }
+
+const message = (e: unknown) => String((e as Error)?.message ?? e);
+const isQuotaError = (e: unknown) => /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(message(e));
+const isMissingModel = (e: unknown) => /\b404\b|NOT_FOUND/i.test(message(e));
+/** "High demand" spikes are per model and brief, so try another model and give this one a short rest. */
+const isOverloaded = (e: unknown) => /\b503\b|UNAVAILABLE|high demand/i.test(message(e));
+/** Google reports when a quota resets, e.g. "retryDelay": "33770s". */
+const retryAfterMs = (e: unknown) => {
+  const seconds = message(e).match(/"retryDelay":\s*"(\d+(?:\.\d+)?)s"/)?.[1];
+  return seconds ? Math.ceil(Number(seconds) * 1000) : undefined;
+};
+
+export const configuredGeminiModels = (env: NodeJS.ProcessEnv = process.env): string[] =>
+  (env.GEMINI_MODELS ?? env.GEMINI_MODEL)?.split(',').map((m) => m.trim()).filter(Boolean) ?? DEFAULT_GEMINI_MODELS;
 
 /** Google Gemini through the Gemini API (the free tier needs only an API key from AI Studio). */
 export function geminiWriter(options: GeminiOptions = {}): Writer {
   const client = options.client ?? new GoogleGenAI({ apiKey: options.apiKey });
-  const model = options.model ?? process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
+  const models = options.models ?? (options.model ? [options.model] : configuredGeminiModels());
+  const { minIntervalMs = 5000, cooldownMs = 60_000, now = Date.now, sleep = (ms) => new Promise<void>((r) => setTimeout(r, ms)) } = options;
+  const coolUntil = new Map<string, number>();
+  let lastCall = 0;
+  let queue: Promise<unknown> = Promise.resolve();
 
-  return llmWriter(async (system, user) => {
+  async function generate(model: string, system: string, user: string): Promise<string> {
     const response = await client.models.generateContent({
       model,
       contents: user,
@@ -89,5 +131,35 @@ export function geminiWriter(options: GeminiOptions = {}): Writer {
     const finish = response.candidates?.[0]?.finishReason;
     if (finish && finish !== 'STOP') throw new Error(`the model stopped early (${finish})`);
     return response.text ?? '';
-  }, options.onError);
+  }
+
+  const call: Complete = async (system, user) => {
+    const available = models.filter((m) => now() >= (coolUntil.get(m) ?? 0));
+    if (!available.length) throw new Error('skipping the model: every model is cooling down after quota errors');
+    const wait = lastCall + minIntervalMs - now();
+    if (wait > 0) await sleep(wait);
+    lastCall = now();
+
+    let last: unknown;
+    for (const model of available) {
+      try {
+        return await generate(model, system, user);
+      } catch (e) {
+        if (isQuotaError(e)) coolUntil.set(model, now() + (retryAfterMs(e) ?? cooldownMs));
+        else if (isOverloaded(e)) coolUntil.set(model, now() + 30_000);
+        else if (isMissingModel(e)) coolUntil.set(model, now() + 3_600_000);
+        else throw e;
+        last = e; // try the next model
+      }
+    }
+    throw last;
+  };
+  // One call at a time, so the spacing holds even when several replies are written together.
+  const complete: Complete = (system, user) => {
+    const result = queue.then(() => call(system, user));
+    queue = result.catch(() => undefined);
+    return result;
+  };
+
+  return llmWriter(complete, { onError: options.onError, aiReminderLanguages: options.aiReminderLanguages });
 }

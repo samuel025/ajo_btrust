@@ -1,7 +1,7 @@
 import { nip19 } from 'nostr-tools';
-import { fetchInvoice, type GroupRef } from '@ajo/core';
+import { fetchInvoice, type GroupRef, type Language } from '@ajo/core';
 import { discoverGroups, nostrLedger } from './nostr-ledger';
-import { DEFAULT_GEMINI_MODEL, geminiWriter } from './ai';
+import { configuredGeminiModels, geminiWriter } from './ai';
 import { templateWriter } from './messages';
 import { payInvoice } from './pay';
 import { runOnce } from './runner';
@@ -25,9 +25,10 @@ const secretKey = decoded.data;
 const toHex = (key: string) => (key.startsWith('npub') ? (nip19.decode(key as `npub1${string}`).data as string) : key);
 const ledger = nostrLedger(relays, secretKey);
 const INTERVAL_MS = 30_000;
+const aiReminderLanguages = (process.env.AI_REMINDER_LANGUAGES ?? 'en').split(',').map((l) => l.trim()).filter(Boolean) as Language[];
 const geminiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
 const writer = geminiKey
-  ? geminiWriter({ apiKey: geminiKey, onError: (e) => console.error('assistant: Gemini call failed, used a template instead:', (e as Error).message) })
+  ? geminiWriter({ apiKey: geminiKey, aiReminderLanguages, onError: (e) => console.error('assistant: Gemini call failed, used a template instead:', (e as Error).message) })
   : templateWriter;
 /** Invoices this process has already paid, so a failed publish never leads to a second payment. */
 const paid = new Map<string, string>();
@@ -51,6 +52,6 @@ async function loop() {
 }
 
 console.log(`Coordinator running against ${relays.join(', ')}`);
-console.log(writer === templateWriter ? 'Assistant: built-in templates (set GEMINI_API_KEY to use Gemini)' : `Assistant: Gemini (${process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL})`);
+console.log(writer === templateWriter ? 'Assistant: built-in templates (set GEMINI_API_KEY to use Gemini)' : `Assistant: Gemini (${configuredGeminiModels().join(' → ')}); AI-written reminders in: ${aiReminderLanguages.join(', ')}`);
 await loop();
 setInterval(loop, INTERVAL_MS);

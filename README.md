@@ -69,10 +69,17 @@ overdue, in the language they chose when joining (English, Pidgin, Yoruba or Hau
 also ask the assistant questions ("when is my turn?", "who hasn't paid?") on the group page.
 Reminders and answers are encrypted between the member and the coordinator.
 
-Without `GEMINI_API_KEY` the bot uses fixed templates. With it, Google Gemini writes the reminders and
-answers from group facts only (never keys, invoices or wallets), and any failure falls back to the
-templates. The default model is `gemini-2.5-flash`, which has a free tier that needs no billing; set
-`GEMINI_MODEL` to use another one (for example `gemini-2.5-flash-lite` or `gemini-3.1-flash-lite`).
+Without `GEMINI_API_KEY` the bot uses fixed templates. With it, Google Gemini writes the assistant's
+answers, and reminders in the languages listed in `AI_REMINDER_LANGUAGES` (default `en` only: Gemini's
+Yoruba and Pidgin reminders were unreliable in testing, so those use the fixed templates unless you opt
+in). Only group facts are sent (never keys, invoices or wallets), and any failure falls back to the
+templates.
+
+Models are tried in order: `gemini-3.1-flash-lite`, then `gemini-2.5-flash` (set `GEMINI_MODELS` to a
+comma-separated list to change it). Free-tier daily quotas are per model and small, so a model that
+runs out of quota, is overloaded or doesn't exist is skipped for a while (until Google's reported reset
+time for quota errors) and the next one is tried. Calls are spaced 5 seconds apart. When nothing is
+available, members get the template text, so they always get a message.
 
 **Privacy:** with the assistant on, members' questions and the group's schedule are sent to Google.
 Google's free tier may use them to improve its products, so the app tells members not to put anything
