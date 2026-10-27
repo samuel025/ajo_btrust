@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type RoundState } from '@ajo/core';
+import { LANGUAGES, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
 import { loadActivity, loadGroup, publish, type GroupActivity } from '../lib/ledger';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
@@ -42,7 +42,10 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
         <ActionCard ctx={ctx} group={group} groupKey={groupKey} activity={activity} round={current} onPaid={refresh} />
       )}
 
+      {isMember && activity && activity.notices.length > 0 && <NoticesCard notices={activity.notices} />}
       {isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
+
+      {isMember && activity?.addresses[me] && <AssistantCard ctx={ctx} group={group} thread={activity.thread} onAsked={refresh} />}
 
       <h2>Schedule</h2>
       <table>
@@ -79,6 +82,7 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
 
 function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef; groupKey: GroupKey; onDone: () => void }) {
   const [address, setAddress] = useState('');
+  const [language, setLanguage] = useState<Language>('en');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
@@ -88,7 +92,7 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
     if (problem) return setError(problem);
     setBusy(true);
     try {
-      await publish(ctx.settings.relay, ctx.signer, joinEvent({ groupId: group.id, lightningAddress: address.trim() }, groupKey));
+      await publish(ctx.settings.relay, ctx.signer, joinEvent({ groupId: group.id, lightningAddress: address.trim(), language }, groupKey));
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -103,6 +107,11 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
       <p className="muted">By joining you agree to pay {formatSats(group.amountSats)} each round. Members pay you at this Lightning address when it's your turn.</p>
       <label>Your Lightning address
         <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="you@wallet.com" />
+      </label>
+      <label>Language for reminders
+        <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
+          {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+        </select>
       </label>
       {error && <p className="error">{error}</p>}
       <button disabled={busy}>{busy ? 'Joining…' : 'Join'}</button>
@@ -211,5 +220,55 @@ function AutopayCard({ ctx, group, enabled, onChanged }: { ctx: Ctx; group: Grou
       {error && <p className="error">{error}</p>}
       <button disabled={busy || !url} onClick={() => save(url.trim())}>Turn on auto-pay</button>
     </details>
+  );
+}
+
+function NoticesCard({ notices }: { notices: GroupActivity['notices'] }) {
+  return (
+    <section className="card notice">
+      <h2>From the coordinator</h2>
+      {notices.slice(0, 3).map((n) => (
+        <p key={`${n.at}:${n.stage}`}>{n.text} <span className="muted small">{formatDate(n.at)}</span></p>
+      ))}
+    </section>
+  );
+}
+
+function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: GroupDef; thread: GroupActivity['thread']; onAsked: () => void }) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const ask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(undefined);
+    setBusy(true);
+    try {
+      await publish(ctx.settings.relay, ctx.signer, await askEvent(group.id, text.trim(), group.coordinator, ctx.signer.cipher));
+      setText('');
+      onAsked();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Ask the assistant</h2>
+      <p className="muted small">Ask in English, Pidgin, Yoruba or Hausa, for example "when is my turn?" or "who hasn't paid?". Only you and the coordinator can read this.</p>
+      {thread.slice(-4).map(({ question, answer }) => (
+        <div key={question.id} className="qa">
+          <p className="q">{question.text}</p>
+          <p className="a">{answer ? answer.text : <span className="muted">Thinking…</span>}</p>
+        </div>
+      ))}
+      <form onSubmit={ask} className="askrow">
+        <input value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Ask a question" />
+        <button disabled={busy || !text.trim()}>Ask</button>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </section>
   );
 }

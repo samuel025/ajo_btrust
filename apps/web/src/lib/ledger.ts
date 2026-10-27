@@ -1,7 +1,8 @@
 import { SimplePool, type EventTemplate, type NostrEvent } from 'nostr-tools';
 import {
-  KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_ROUND, parseAutopay, parseGroup, parseJoin, parseRound,
-  type GroupDef, type GroupKey, type GroupRef, type RoundState,
+  KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_NOTICE, KIND_ROUND, parseAnswer, parseAsk, parseAutopay,
+  parseGroup, parseJoin, parseNotice, parseRound,
+  type Answer, type GroupDef, type GroupKey, type GroupRef, type Notice, type Question, type RoundState,
 } from '@ajo/core';
 import type { Signer } from './signer';
 
@@ -38,13 +39,20 @@ export interface GroupActivity {
   rounds: Map<number, RoundState>;
   /** Whether this member currently lets the coordinator pay for them. */
   autopay: boolean;
+  /** This member's questions to the assistant, oldest first, each with its answer once there is one. */
+  thread: { question: Question; answer?: Answer }[];
+  /** Reminders the coordinator sent this member, newest first. */
+  notices: Notice[];
 }
 
 export async function loadActivity(relay: string, group: GroupDef, key: GroupKey, signer: Signer): Promise<GroupActivity> {
-  const [joins, roundEvents, grants] = await Promise.all([
+  const [joins, roundEvents, grants, asks, answers, noticeEvents] = await Promise.all([
     pool.querySync([relay], { kinds: [KIND_JOIN], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_ROUND], authors: [group.coordinator], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_AUTOPAY], authors: [signer.pubkey], '#a': [group.id] }),
+    pool.querySync([relay], { kinds: [KIND_ASK], authors: [signer.pubkey], '#a': [group.id] }),
+    pool.querySync([relay], { kinds: [KIND_ANSWER], authors: [group.coordinator], '#a': [group.id], '#p': [signer.pubkey] }),
+    pool.querySync([relay], { kinds: [KIND_NOTICE], authors: [group.coordinator], '#a': [group.id], '#p': [signer.pubkey] }),
   ]);
 
   const addresses: Record<string, string> = {};
@@ -67,7 +75,22 @@ export async function loadActivity(relay: string, group: GroupDef, key: GroupKey
   if (latestGrant) {
     try { autopay = (await parseAutopay(latestGrant, group.coordinator, signer.cipher)).nwcUrl !== null; } catch { /* unreadable: treat as off */ }
   }
-  return { addresses, rounds, autopay };
+
+  // Everything between this member and the coordinator is encrypted to the pair; the member can
+  // read both directions because the shared secret is symmetric.
+  const read = async <T>(events: NostrEvent[], parse: (e: NostrEvent) => Promise<T>) => {
+    const out: T[] = [];
+    for (const event of events) { try { out.push(await parse(event)); } catch { /* skip unreadable */ } }
+    return out;
+  };
+  const questions = await read(asks, (e) => parseAsk(e, group.coordinator, signer.cipher));
+  const replies = await read(answers, (e) => parseAnswer(e, group.coordinator, signer.cipher));
+  const thread = questions
+    .sort((x, y) => x.at - y.at)
+    .map((question) => ({ question, answer: replies.find((r) => r.questionId === question.id) }));
+  const notices = (await read(noticeEvents, (e) => parseNotice(e, group.coordinator, signer.cipher))).sort((x, y) => y.at - x.at);
+
+  return { addresses, rounds, autopay, thread, notices };
 }
 
 export async function publish(relay: string, signer: Signer, template: EventTemplate) {

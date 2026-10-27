@@ -1,7 +1,7 @@
 import type { EventTemplate, NostrEvent } from 'nostr-tools';
-import { KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND } from './kinds';
+import { KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_NOTICE, KIND_RECEIPT, KIND_ROUND } from './kinds';
 import { open, seal, unwrapKey, wrapKey, type Cipher, type GroupKey } from './crypto';
-import type { GroupDef, GroupRef, Join, Receipt, RoundState } from './types';
+import type { GroupDef, GroupRef, Join, Language, Receipt, ReminderStage, RoundState } from './types';
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -27,7 +27,7 @@ export function joinEvent(join: Join, key: GroupKey, createdAt = now()): EventTe
     kind: KIND_JOIN,
     created_at: createdAt,
     tags: [['a', join.groupId]],
-    content: seal(key, { lightningAddress: join.lightningAddress }),
+    content: seal(key, { lightningAddress: join.lightningAddress, language: join.language }),
   };
 }
 
@@ -42,6 +42,7 @@ export function roundEvent(state: RoundState, key: GroupKey, createdAt = now()):
       paid: state.paid,
       invoices: state.invoices,
       payoutOrder: state.payoutOrder,
+      reminders: state.reminders,
       status: state.status,
     }),
   };
@@ -84,11 +85,8 @@ export async function parseGroup(event: NostrEvent, me: string, cipher: Cipher):
 
 export function parseJoin(event: NostrEvent, key: GroupKey): Join & { member: string } {
   expectKind(event, KIND_JOIN);
-  return {
-    groupId: tag(event, 'a'),
-    member: event.pubkey,
-    lightningAddress: open<{ lightningAddress: string }>(key, event.content).lightningAddress,
-  };
+  const { lightningAddress, language } = open<{ lightningAddress: string; language?: Language }>(key, event.content);
+  return { groupId: tag(event, 'a'), member: event.pubkey, lightningAddress, language };
 }
 
 /** Round state is only trusted when published by the group's coordinator. */
@@ -140,4 +138,58 @@ export async function parseAutopay(event: NostrEvent, peer: string, cipher: Ciph
   expectKind(event, KIND_AUTOPAY);
   const { nwcUrl } = JSON.parse(await cipher.decrypt(peer, event.content)) as { nwcUrl: string | null };
   return { member: event.pubkey, nwcUrl };
+}
+
+export interface Question { id: string; member: string; text: string; at: number }
+export interface Answer { questionId: string; member: string; text: string; at: number }
+export interface Notice { member: string; round: number; stage: ReminderStage; text: string; at: number }
+
+const MAX_QUESTION = 500;
+
+/** A question for the group assistant, readable only by the member and the coordinator. */
+export async function askEvent(groupId: string, text: string, coordinator: string, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
+  if (!text.trim() || text.length > MAX_QUESTION) throw new Error(`a question must be 1-${MAX_QUESTION} characters`);
+  return {
+    kind: KIND_ASK,
+    created_at: createdAt,
+    tags: [['a', groupId], ['p', coordinator]],
+    content: await cipher.encrypt(coordinator, JSON.stringify({ text })),
+  };
+}
+
+export async function parseAsk(event: NostrEvent, peer: string, cipher: Cipher): Promise<Question> {
+  expectKind(event, KIND_ASK);
+  const { text } = JSON.parse(await cipher.decrypt(peer, event.content)) as { text: string };
+  if (typeof text !== 'string' || text.length > MAX_QUESTION) throw new Error('malformed question');
+  return { id: event.id, member: event.pubkey, text, at: event.created_at };
+}
+
+export async function answerEvent(groupId: string, questionId: string, member: string, text: string, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
+  return {
+    kind: KIND_ANSWER,
+    created_at: createdAt,
+    tags: [['a', groupId], ['p', member], ['e', questionId]],
+    content: await cipher.encrypt(member, JSON.stringify({ text })),
+  };
+}
+
+export async function parseAnswer(event: NostrEvent, peer: string, cipher: Cipher): Promise<Answer> {
+  expectKind(event, KIND_ANSWER);
+  const { text } = JSON.parse(await cipher.decrypt(peer, event.content)) as { text: string };
+  return { questionId: tag(event, 'e'), member: tag(event, 'p'), text, at: event.created_at };
+}
+
+export async function noticeEvent(groupId: string, notice: Omit<Notice, 'at'>, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
+  return {
+    kind: KIND_NOTICE,
+    created_at: createdAt,
+    tags: [['a', groupId], ['p', notice.member], ['round', String(notice.round)], ['stage', notice.stage]],
+    content: await cipher.encrypt(notice.member, JSON.stringify({ text: notice.text })),
+  };
+}
+
+export async function parseNotice(event: NostrEvent, peer: string, cipher: Cipher): Promise<Notice> {
+  expectKind(event, KIND_NOTICE);
+  const { text } = JSON.parse(await cipher.decrypt(peer, event.content)) as { text: string };
+  return { member: tag(event, 'p'), round: Number(tag(event, 'round')), stage: tag(event, 'stage') as ReminderStage, text, at: event.created_at };
 }

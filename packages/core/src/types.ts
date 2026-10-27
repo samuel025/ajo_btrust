@@ -20,10 +20,23 @@ export interface GroupRef {
   id: string;
 }
 
+export type Language = 'en' | 'pcm' | 'yo' | 'ha';
+
+export const LANGUAGES: Record<Language, string> = {
+  en: 'English',
+  pcm: 'Pidgin',
+  yo: 'Yoruba',
+  ha: 'Hausa',
+};
+
+export type ReminderStage = 'due' | 'overdue';
+
 export interface Join {
   groupId: string;
   /** Where other members pay this member when it is their turn. */
   lightningAddress: string;
+  /** Language for reminders. */
+  language?: Language;
 }
 
 export interface RoundState {
@@ -40,6 +53,8 @@ export interface RoundState {
   invoices: Record<string, string>;
   /** The payout order in force this round; differs from the group's once a recipient is deferred. */
   payoutOrder?: string[];
+  /** The latest reminder each member has been sent this round, so none is sent twice. */
+  reminders?: Record<string, ReminderStage>;
   status: 'open' | 'complete' | 'skipped';
 }
 

@@ -4,7 +4,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
-  autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
+  answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
@@ -136,6 +136,38 @@ describe('coordinator receipts', () => {
     // anyone else claiming a payer tag is still treated as the payer themselves
     const byMember = finalizeEvent(receiptEvent({ ...receipt, payer: pk(c) }, key), a);
     expect(parseReceipt(byMember, key, pk(bot)).payer).toBe(pk(a));
+  });
+});
+
+describe('assistant messages', () => {
+  const outsider = sk();
+
+  it('questions can be read only by the member and the coordinator', async () => {
+    const event = finalizeEvent(await askEvent(group.id, 'when is my turn?', pk(bot), secretKeyCipher(a)), a);
+    expect(JSON.stringify(event)).not.toContain('turn');
+    expect(await parseAsk(event, pk(a), secretKeyCipher(bot))).toMatchObject({ member: pk(a), text: 'when is my turn?', id: event.id });
+    expect((await parseAsk(event, pk(bot), secretKeyCipher(a))).text).toBe('when is my turn?');
+    await expect(parseAsk(event, pk(a), secretKeyCipher(outsider))).rejects.toThrow();
+  });
+
+  it('refuses empty or oversized questions', async () => {
+    await expect(askEvent(group.id, '  ', pk(bot), secretKeyCipher(a))).rejects.toThrow();
+    await expect(askEvent(group.id, 'x'.repeat(501), pk(bot), secretKeyCipher(a))).rejects.toThrow();
+  });
+
+  it('answers and reminders are addressed to one member and unreadable to others', async () => {
+    const answer = finalizeEvent(await answerEvent(group.id, 'q1', pk(a), 'Round 2.', secretKeyCipher(bot)), bot);
+    expect(await parseAnswer(answer, pk(bot), secretKeyCipher(a))).toEqual({ questionId: 'q1', member: pk(a), text: 'Round 2.', at: answer.created_at });
+    const notice = finalizeEvent(await noticeEvent(group.id, { member: pk(a), round: 1, stage: 'due', text: 'Please pay.' }, secretKeyCipher(bot)), bot);
+    expect(JSON.stringify(notice)).not.toContain('Please pay');
+    expect(await parseNotice(notice, pk(bot), secretKeyCipher(a))).toMatchObject({ member: pk(a), round: 1, stage: 'due', text: 'Please pay.' });
+    await expect(parseNotice(notice, pk(bot), secretKeyCipher(b))).rejects.toThrow();
+  });
+
+  it('keeps a member\'s language preference in their join event', () => {
+    const key = createGroupKey();
+    const join = parseJoin(finalizeEvent(joinEvent({ groupId: group.id, lightningAddress: 'a@x.com', language: 'yo' }, key), a), key);
+    expect(join.language).toBe('yo');
   });
 });
 

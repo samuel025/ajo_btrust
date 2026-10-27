@@ -1,7 +1,8 @@
 import { SimplePool, finalizeEvent, getPublicKey, type Filter } from 'nostr-tools';
 import {
-  KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND, parseAutopay, parseGroup, parseJoin, parseReceipt, parseRound,
-  receiptEvent, roundEvent, secretKeyCipher, type GroupKey, type GroupRef, type Receipt, type RoundState,
+  KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND, answerEvent, askEvent, noticeEvent,
+  parseAutopay, parseAsk, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, roundEvent, secretKeyCipher,
+  type GroupKey, type GroupRef, type Language, type Question, type Receipt, type RoundState,
 } from '@ajo/core';
 import type { Ledger } from './runner';
 
@@ -45,6 +46,38 @@ export function nostrLedger(relays: string[], secretKey: Uint8Array): Ledger {
         try { receipts.push(parseReceipt(event, key, group.coordinator)); } catch { /* malformed receipts are ignored */ }
       }
       return receipts;
+    },
+    async languages(group) {
+      const key = keyFor(group.id);
+      const events = await query({ kinds: [KIND_JOIN], '#a': [group.id] });
+      const languages: Record<string, Language> = {};
+      for (const event of events.sort((a, b) => a.created_at - b.created_at)) {
+        if (!group.payoutOrder.includes(event.pubkey)) continue;
+        try {
+          const { language } = parseJoin(event, key);
+          if (language) languages[event.pubkey] = language;
+        } catch { /* skip */ }
+      }
+      return languages;
+    },
+    async questions(group) {
+      const [asks, answers] = await Promise.all([
+        query({ kinds: [KIND_ASK], '#a': [group.id], authors: group.payoutOrder }),
+        query({ kinds: [KIND_ANSWER], '#a': [group.id], authors: [botPubkey] }),
+      ]);
+      const answered = new Set(answers.flatMap((e) => e.tags.filter((t) => t[0] === 'e').map((t) => t[1])));
+      const pending: Question[] = [];
+      for (const event of asks.sort((a, b) => a.created_at - b.created_at)) {
+        if (answered.has(event.id)) continue;
+        try { pending.push(await parseAsk(event, event.pubkey, cipher)); } catch { /* unreadable questions are ignored */ }
+      }
+      return pending;
+    },
+    async publishNotice(group, notice) {
+      await Promise.all(pool.publish(relays, finalizeEvent(await noticeEvent(group.id, notice, cipher), secretKey)));
+    },
+    async publishAnswer(group, question, text) {
+      await Promise.all(pool.publish(relays, finalizeEvent(await answerEvent(group.id, question.id, question.member, text, cipher), secretKey)));
     },
     async grants(group) {
       const events = await query({ kinds: [KIND_AUTOPAY], '#a': [group.id], authors: group.payoutOrder });

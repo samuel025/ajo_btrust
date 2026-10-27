@@ -1,6 +1,6 @@
 import {
   isFinished, isRoundComplete, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
-  type GroupDef, type Receipt, type RoundState,
+  type GroupDef, type Receipt, type ReminderStage, type RoundState,
 } from '@ajo/core';
 
 export type FetchInvoice = (lightningAddress: string, amountSats: number) => Promise<{ invoice: string }>;
@@ -11,8 +11,10 @@ export type AutoPay = (member: string, invoice: string) => Promise<string | unde
 export type Action =
   | { type: 'invoice-failed'; payer: string; reason: string }
   | { type: 'autopaid'; payer: string }
+  | { type: 'answered'; count: number }
+  | { type: 'assistant-error'; reason: string }
   | { type: 'autopay-failed'; payer: string; reason: string }
-  | { type: 'remind'; members: string[]; deadline: number }
+  | { type: 'remind'; members: string[]; deadline: number; round: number; stage: ReminderStage }
   | { type: 'round-complete'; round: number }
   | { type: 'cycle-complete' }
   | { type: 'recipient-deferred'; recipient: string; round: number };
@@ -115,8 +117,18 @@ export async function tick(input: TickInput): Promise<TickResult> {
     return { group: deferred, state: openRound(deferred, state.round), actions, autoReceipts };
   }
 
-  if (now >= state.deadline - 24 * 3600) {
-    actions.push({ type: 'remind', members: unpaid(group, state), deadline: state.deadline });
+  // One reminder a day before the deadline and one once it has passed, each sent at most once,
+  // and only to members who can pay now (an invoice exists). The stage is recorded in the state.
+  const stage: ReminderStage | undefined = now > state.deadline ? 'overdue' : now >= state.deadline - 24 * 3600 ? 'due' : undefined;
+  if (stage) {
+    const rank: Record<ReminderStage, number> = { due: 1, overdue: 2 };
+    const members = unpaid(group, state).filter(
+      (m) => state.invoices[m] && rank[stage] > (state.reminders?.[m] ? rank[state.reminders[m]!] : 0),
+    );
+    if (members.length) {
+      state.reminders = { ...state.reminders, ...Object.fromEntries(members.map((m) => [m, stage])) };
+      actions.push({ type: 'remind', members, deadline: state.deadline, round: state.round, stage });
+    }
   }
   return { group, state, actions, autoReceipts };
 }

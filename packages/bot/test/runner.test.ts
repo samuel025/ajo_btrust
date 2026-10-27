@@ -19,6 +19,10 @@ function memoryLedger(grants: Record<string, string> = {}): Ledger & { rounds: M
     addresses: async () => ({ [a]: 'a@x.com', [b]: 'b@x.com' }),
     receipts: async () => [],
     grants: async () => grants,
+    languages: async () => ({}),
+    questions: async () => [],
+    publishNotice: async () => undefined,
+    publishAnswer: async () => undefined,
     publishReceipt: async (r) => void events.push(`receipt:${r.payer}`),
     round: async (_g, n) => rounds.get(n),
     publishRound: async (s) => { events.push(`round:${s.round}:${s.status}`); rounds.set(s.round, s); },
@@ -76,13 +80,14 @@ describe('runOnce', () => {
       const invoice = await invoiceFor();
       const ledger = memoryLedger({ [b]: 'nostr+walletconnect://grant' });
       const payments: string[] = [];
-      const pay = async (nwcUrl: string, inv: string) => { payments.push(`${nwcUrl}|${inv === invoice}`); return { preimage }; };
+      const pay = async (nwcUrl: string, inv: string) => { payments.push(`${nwcUrl}|${inv === invoice}`); ledger.events.push('pay'); return { preimage }; };
       const paid = new Map<string, string>();
       const run = () => runOnce(ledger, ref, async () => ({ invoice }), group.startDate - 86_400, { pay, paid });
 
       await run();
       expect(payments).toEqual(['nostr+walletconnect://grant|true']);
-      expect(ledger.events.slice(0, 3)).toEqual([`receipt:${b}`, 'round:0:complete', 'round:1:open']);
+      // the invoice is published before any money moves, then the receipt, then the round
+      expect(ledger.events.slice(0, 5)).toEqual(['round:0:open', 'pay', `receipt:${b}`, 'round:0:complete', 'round:1:open']);
 
       // a second pass over the same invoice (e.g. after a failed publish) reuses the preimage
       ledger.rounds.delete(0); ledger.events.length = 0;
@@ -97,6 +102,39 @@ describe('runOnce', () => {
       await runOnce(memoryLedger({}), ref, async () => ({ invoice }), group.startDate - 86_400, { pay, paid: new Map() });
       await runOnce(memoryLedger({ [b]: 'nostr+walletconnect://grant' }), ref, async () => ({ invoice }), group.startDate - 86_400, { paid: new Map() });
       expect(calls).toBe(0);
+    });
+  });
+
+  describe('assistant', () => {
+    it('sends reminders before publishing the state that records them', async () => {
+      const ledger = memoryLedger();
+      const order: string[] = [];
+      ledger.publishNotice = async (_g, n) => void order.push(`notice:${n.member === b ? 'b' : 'x'}`);
+      const publish = ledger.publishRound;
+      ledger.publishRound = async (s) => { order.push(`round:${s.round}`); return publish(s); };
+      await runOnce(ledger, ref, async () => ({ invoice: 'lnbc-fake' }), group.startDate - 3600);
+      expect(order).toEqual(['notice:b', 'round:0']);
+      expect(ledger.rounds.get(0)?.reminders).toEqual({ [b]: 'due' });
+    });
+
+    it('never lets a failing assistant block the round', async () => {
+      const ledger = memoryLedger();
+      ledger.questions = async () => { throw new Error('relay hiccup'); };
+      const actions = await runOnce(ledger, ref, async () => ({ invoice: 'lnbc-fake' }), group.startDate - 86_400 * 3);
+      expect(actions).toContainEqual({ type: 'assistant-error', reason: 'relay hiccup' });
+      expect(ledger.rounds.get(0)?.status).toBe('open');
+    });
+
+    it('answers questions after the round is published', async () => {
+      const ledger = memoryLedger();
+      const events: string[] = [];
+      ledger.questions = async () => [{ id: 'q1', member: b, text: 'who has paid?', at: 1 }];
+      ledger.publishAnswer = async () => void events.push('answer');
+      const publish = ledger.publishRound;
+      ledger.publishRound = async (s) => { events.push('round'); return publish(s); };
+      const actions = await runOnce(ledger, ref, async () => ({ invoice: 'lnbc-fake' }), group.startDate - 86_400 * 3);
+      expect(events).toEqual(['round', 'answer']);
+      expect(actions).toContainEqual({ type: 'answered', count: 1 });
     });
   });
 });

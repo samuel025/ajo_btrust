@@ -1,6 +1,8 @@
 import { nip19 } from 'nostr-tools';
 import { fetchInvoice, type GroupRef } from '@ajo/core';
 import { discoverGroups, nostrLedger } from './nostr-ledger';
+import { claudeWriter } from './ai';
+import { templateWriter } from './messages';
 import { payInvoice } from './pay';
 import { runOnce } from './runner';
 
@@ -23,6 +25,9 @@ const secretKey = decoded.data;
 const toHex = (key: string) => (key.startsWith('npub') ? (nip19.decode(key as `npub1${string}`).data as string) : key);
 const ledger = nostrLedger(relays, secretKey);
 const INTERVAL_MS = 30_000;
+const writer = process.env.ANTHROPIC_API_KEY
+  ? claudeWriter({ onError: (e) => console.error('assistant: Claude call failed, used a template instead:', (e as Error).message) })
+  : templateWriter;
 /** Invoices this process has already paid, so a failed publish never leads to a second payment. */
 const paid = new Map<string, string>();
 
@@ -36,7 +41,7 @@ async function loop() {
   ];
   for (const ref of refs) {
     try {
-      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats), undefined, { pay: payInvoice, paid });
+      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats), undefined, { pay: payInvoice, paid, writer });
       for (const action of actions) console.log(ref.id, JSON.stringify(action));
     } catch (e) {
       console.error(ref.id, (e as Error).message);
@@ -45,5 +50,6 @@ async function loop() {
 }
 
 console.log(`Coordinator running against ${relays.join(', ')}`);
+console.log(writer === templateWriter ? 'Assistant: built-in templates (set ANTHROPIC_API_KEY to use Claude)' : `Assistant: Claude (${process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5'})`);
 await loop();
 setInterval(loop, INTERVAL_MS);

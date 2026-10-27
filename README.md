@@ -61,3 +61,21 @@ paste it into the group page. It is encrypted to the coordinator. The wallet enf
 npm run e2e:autopay -w @ajo/bot        # relay + mocked Lightning
 npm run e2e:live-autopay -w @ajo/bot   # needs NWC_AUTOPAY (budgeted) and NWC_RECIPIENT in .env
 ```
+
+## Reminders and the assistant
+
+The coordinator sends each member a reminder a day before a round is due and another when it is
+overdue, in the language they chose when joining (English, Pidgin, Yoruba or Hausa). Members can
+also ask the assistant questions ("when is my turn?", "who hasn't paid?") on the group page.
+Reminders and answers are encrypted between the member and the coordinator.
+
+Without `ANTHROPIC_API_KEY` the bot uses fixed templates. With it, Claude writes the reminders and
+answers from group facts only (never keys, invoices or wallets), and any failure falls back to the
+templates. Set `ANTHROPIC_MODEL` to use a different model than the default `claude-opus-5-5`.
+
+```
+npm run e2e:assistant -w @ajo/bot   # relay, templates
+npm run e2e:live-ai -w @ajo/bot     # needs ANTHROPIC_API_KEY, calls the real API
+```
+
+The Pidgin, Yoruba and Hausa template wording has not been reviewed by native speakers.

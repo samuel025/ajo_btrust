@@ -67,8 +67,14 @@ try {
   await text('Waiting for the coordinator to open this round');
   step('joined; UI waits for the coordinator');
 
+  // ask the assistant through the real UI before the bot's next pass
+  await page.type('input[placeholder="Ask a question"]', 'when is my turn?');
+  await clickButton('Ask');
+  await text('Thinking');
   const ledger = nostrLedger([relay], botKey);
   await runOnce(ledger, { author: mePub, id: groupId }, (a, s) => fetchInvoice(a, s));
+  await text('You receive in round 2', 30000);
+  step('the assistant answered the question in the UI');
   await text('Pay 1,000 sats');
   await page.screenshot({ path: `${shots}/3-pay.png` });
   step('bot issued an invoice; Pay button is shown');

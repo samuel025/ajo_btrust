@@ -45,7 +45,7 @@ describe('tick', () => {
     const { invoices } = issued.state;
     const one = await tick({ group, state: issued.state, addresses, receipts: [receiptFor(b, invoices[b]!)], fetchInvoice, now: group.startDate - 1 });
     expect(one.state.paid).toEqual([b]);
-    expect(one.actions).toContainEqual({ type: 'remind', members: [c], deadline: group.startDate });
+    expect(one.actions).toContainEqual({ type: 'remind', members: [c], deadline: group.startDate, round: 0, stage: 'due' });
 
     const done = await tick({ group, state: one.state, addresses, receipts: [receiptFor(b, invoices[b]!), receiptFor(c, invoices[c]!)], fetchInvoice, now: group.startDate });
     expect(done.state.status).toBe('complete');
@@ -126,5 +126,38 @@ describe('auto-pay', () => {
     let calls = 0;
     await tick({ group, state: issued.state, addresses, receipts: [receipt], fetchInvoice, now: payNow, autoPay: async (m, i) => { if (m === b) calls++; return preimages.get(i); } });
     expect(calls).toBe(0);
+  });
+});
+
+describe('reminders', () => {
+  const dayBefore = group.startDate - 3600;
+  const issue = () => tick({ group, state: openRound(group, 0), addresses, receipts: [], fetchInvoice, now: group.startDate - 7 * 86_400 });
+
+  it('reminds each member once per stage, not on every tick', async () => {
+    const issued = await issue();
+    const first = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, now: dayBefore });
+    expect(first.actions).toContainEqual({ type: 'remind', members: [b, c], deadline: group.startDate, round: 0, stage: 'due' });
+    expect(first.state.reminders).toEqual({ [b]: 'due', [c]: 'due' });
+
+    const again = await tick({ group, state: first.state, addresses, receipts: [], fetchInvoice, now: dayBefore + 600 });
+    expect(again.actions.some((x) => x.type === 'remind')).toBe(false);
+
+    const overdue = await tick({ group, state: again.state, addresses, receipts: [], fetchInvoice, now: group.startDate + 60 });
+    expect(overdue.actions).toContainEqual({ type: 'remind', members: [b, c], deadline: group.startDate, round: 0, stage: 'overdue' });
+  });
+
+  it('does not remind members who already paid, or who have no invoice to pay', async () => {
+    const issued = await issue();
+    const receipt = { groupId: 'g', round: 0, payer: b, recipient: a, invoice: issued.state.invoices[b]!, preimage: preimages.get(issued.state.invoices[b]!)! };
+    const noInvoiceForC = { ...issued.state, invoices: { [b]: issued.state.invoices[b]! } };
+    const broken: FetchInvoice = async () => { throw new Error('offline'); };
+    const result = await tick({ group, state: noInvoiceForC, addresses, receipts: [receipt], fetchInvoice: broken, now: dayBefore });
+    expect(result.actions.some((x) => x.type === 'remind')).toBe(false);
+  });
+
+  it('does nothing earlier than a day before the deadline', async () => {
+    const issued = await issue();
+    const result = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, now: group.startDate - 3 * 86_400 });
+    expect(result.actions.some((x) => x.type === 'remind')).toBe(false);
   });
 });
