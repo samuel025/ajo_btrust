@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LANGUAGES, standings, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
-import { loadActivity, loadGroup, publish, type GroupActivity } from '../lib/ledger';
+import { loadActivity, loadGroup, publish, publishGroupUpdate, type GroupActivity } from '../lib/ledger';
+import { inviteLink } from '../lib/invite';
+import { clearPending, loadPending } from '../lib/pending';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
 import { formatDate, formatSats, frequencyLabel, recordText, shortKey, validateAddress } from '../lib/format';
@@ -19,16 +21,29 @@ export function GroupPage({ ctx, author, id }: { ctx: Ctx; author: string; id: s
   const { data: loaded, error } = usePoll(() => loadGroup(relay, { author, id }, ctx.signer), [relay, author, id], 10000);
   if (error) return <p className="error">Couldn't load this group from {relay}. {error}</p>;
   if (!loaded) return <p className="muted">Loading group…</p>;
-  return <Loaded ctx={ctx} published={loaded.group} groupKey={loaded.key} />;
+  return <Loaded ctx={ctx} published={loaded.group} groupKey={loaded.key} author={author} />;
 }
 
-function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; groupKey: GroupKey }) {
+function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: GroupDef; groupKey: GroupKey; author: string }) {
   const relay = ctx.settings.relay;
   const me = ctx.signer.pubkey;
   const { data: activity, refresh } = usePoll(() => loadActivity(relay, published, groupKey, ctx.signer), [relay, published.id]);
   // A deferred recipient changes the payout order; the coordinator records it in the round state.
   const group = activity ? effectiveGroup(published, activity.rounds) : published;
   const isMember = group.payoutOrder.includes(me);
+  const isOrganizer = me === author;
+
+  // A person approved from an invite link entered their address when asking: finish joining for them.
+  const autoJoined = useRef(false);
+  useEffect(() => {
+    if (!activity || !isMember || activity.addresses[me] || autoJoined.current) return;
+    const pending = loadPending({ author, id: published.id });
+    if (!pending) return;
+    autoJoined.current = true;
+    publish(relay, ctx.signer, joinEvent({ groupId: published.id, lightningAddress: pending.lightningAddress, language: pending.language }, groupKey))
+      .then(() => { clearPending({ author, id: published.id }); refresh(); })
+      .catch(() => { autoJoined.current = false; });
+  }, [activity, isMember]);
   const current = activity ? currentRound(group, activity.rounds) : undefined;
   const record = activity ? standings(group, [...activity.rounds.values()]) : undefined;
 
@@ -40,35 +55,41 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
       </p>
 
       {!isMember && <p className="error">You're not a member of this group.</p>}
-      {isMember && activity && !activity.addresses[me] && <JoinCard ctx={ctx} group={group} groupKey={groupKey} onDone={refresh} />}
-      {isMember && activity && activity.addresses[me] && (
+      {group.forming && isOrganizer && activity && <FormingCard ctx={ctx} group={published} groupKey={groupKey} requests={activity.requests} onChanged={refresh} />}
+      {group.forming && !isOrganizer && <section className="card"><h2>Waiting for the organizer</h2><p>People are still being added. The schedule starts when the organizer starts the group.</p></section>}
+      {isMember && activity && !activity.addresses[me] && !loadPending({ author, id: published.id }) && <JoinCard ctx={ctx} group={group} groupKey={groupKey} onDone={refresh} />}
+      {!group.forming && isMember && activity && activity.addresses[me] && (
         <ActionCard ctx={ctx} group={group} groupKey={groupKey} activity={activity} round={current} onPaid={refresh} />
       )}
 
-      {isMember && activity && activity.notices.length > 0 && <NoticesCard notices={activity.notices} />}
-      {isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
+      {!group.forming && isMember && activity && activity.notices.length > 0 && <NoticesCard notices={activity.notices} />}
+      {!group.forming && isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
 
-      {isMember && activity?.addresses[me] && <AssistantCard ctx={ctx} group={group} thread={activity.thread} onAsked={refresh} />}
+      {!group.forming && isMember && activity?.addresses[me] && <AssistantCard ctx={ctx} group={group} thread={activity.thread} onAsked={refresh} />}
 
+      {!group.forming && (
+        <>
       <h2>Schedule</h2>
-      <table>
-        <thead><tr><th>Round</th><th>Recipient</th><th>Due</th><th>Paid</th></tr></thead>
-        <tbody>
-          {group.payoutOrder.map((_, n) => {
-            const state = activity?.rounds.get(n);
-            const recipient = state?.recipient ?? recipientForRound(group, n);
-            const owing = group.payoutOrder.length - 1;
-            return (
-              <tr key={n} className={n === current ? 'current' : undefined}>
-                <td>{n + 1}</td>
-                <td>{shortKey(recipient)}{recipient === me && <span className="tag">you</span>}</td>
-                <td>{formatDate(state?.deadline ?? roundDeadline(group, n))}</td>
-                <td>{state?.status === 'complete' ? `Complete${state.defaulted?.length ? ` · ${state.defaulted.length} didn't pay` : ''}` : state ? `${state.paid.length} of ${owing}` : '—'}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+        <table>
+          <thead><tr><th>Round</th><th>Recipient</th><th>Due</th><th>Paid</th></tr></thead>
+          <tbody>
+            {group.payoutOrder.map((_, n) => {
+              const state = activity?.rounds.get(n);
+              const recipient = state?.recipient ?? recipientForRound(group, n);
+              const owing = group.payoutOrder.length - 1;
+              return (
+                <tr key={n} className={n === current ? 'current' : undefined}>
+                  <td>{n + 1}</td>
+                  <td>{shortKey(recipient)}{recipient === me && <span className="tag">you</span>}</td>
+                  <td>{formatDate(state?.deadline ?? roundDeadline(group, n))}</td>
+                  <td>{state?.status === 'complete' ? `Complete${state.defaulted?.length ? ` · ${state.defaulted.length} didn't pay` : ''}` : state ? `${state.paid.length} of ${owing}` : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </>
+      )}
 
       <h2>Members</h2>
       <ul className="members">
@@ -334,4 +355,61 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
 function rateNote(rate: Rate): string {
   const time = new Date(rate.fetchedAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' });
   return `Naira is an estimate at the ${time} market rate. The amount is fixed in sats, so its value in naira changes.`;
+}
+
+function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
+  ctx: Ctx; group: GroupDef; groupKey: GroupKey; requests: GroupActivity['requests']; onChanged: () => void;
+}) {
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const link = inviteLink({ author: ctx.signer.pubkey, id: group.id, name: group.name, amountSats: group.amountSats, frequency: group.frequency });
+
+  const update = async (next: GroupDef) => {
+    setError(undefined);
+    setBusy(true);
+    try {
+      await publishGroupUpdate(ctx.settings.relay, ctx.signer, next, groupKey);
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* the link is in the box to copy by hand */ }
+  };
+
+  // The schedule can't start in the past: if the chosen first date is about to pass, move it back a day.
+  const start = () => update({ ...group, forming: undefined, startDate: Math.max(group.startDate, Math.floor(Date.now() / 1000) + 86_400) });
+
+  return (
+    <section className="card">
+      <h2>Invite people</h2>
+      <p className="muted">Send this link. People open it, ask to join, and you approve them here. Anyone with the link can ask, but nobody joins without your approval.</p>
+      <div className="linkbox">
+        <input readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Invite link" />
+        <button type="button" className="secondary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+      </div>
+
+      <h2>Requests to join</h2>
+      {requests.length === 0 && <p className="muted">No requests yet.</p>}
+      <ul className="requests">
+        {requests.map((r) => (
+          <li key={r.id}>
+            <span>{shortKey(r.member)}<div className="muted small">{r.lightningAddress}</div></span>
+            <button disabled={busy} onClick={() => update({ ...group, payoutOrder: [...group.payoutOrder, r.member] })}>Add to group</button>
+          </li>
+        ))}
+      </ul>
+
+      <h2>Start the group</h2>
+      <p className="muted small">{group.payoutOrder.length} in the group so far, in the order they were added (the first is paid first). Starting fixes who is in and begins the schedule, and you can't add people after.</p>
+      {error && <p className="error">{error}</p>}
+      <button disabled={busy || group.payoutOrder.length < 2} onClick={start}>Start the group</button>
+      {group.payoutOrder.length < 2 && <p className="muted small">You need at least two people to start.</p>}
+    </section>
+  );
 }

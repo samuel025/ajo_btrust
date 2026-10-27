@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { forgetLocalKey } from '../lib/signer';
+import { nip19 } from 'nostr-tools';
+import { forgetLocalKey, localSecretKey } from '../lib/signer';
 import type { Settings } from '../lib/settings';
 import type { Ctx } from '../App';
 
@@ -24,6 +25,7 @@ export function SettingsPage({ ctx, onSave, onSignOut }: { ctx: Ctx; onSave: (s:
         </span>
       </label>
       <button>Save</button>
+      {ctx.signer.kind === 'local' && <KeyBackup />}
       <hr />
       <button type="button" className="secondary" onClick={() => {
         if (ctx.signer.kind === 'local' && !confirm('This deletes your test key from this browser. Make sure you saved the nsec if you need it.')) return;
@@ -31,5 +33,26 @@ export function SettingsPage({ ctx, onSave, onSignOut }: { ctx: Ctx; onSave: (s:
         onSignOut();
       }}>Sign out</button>
     </form>
+  );
+}
+
+/** The account on this device is just a key. Showing it lets people save it, so a lost phone isn't a lost account. */
+function KeyBackup() {
+  const [shown, setShown] = useState(false);
+  const nsec = shown ? localSecretKey() : undefined;
+  return (
+    <section className="card">
+      <h2>Back up your account</h2>
+      <p className="muted small">Your account is a secret key kept on this device. Save it somewhere safe, like a password manager. Anyone who has it can act as you, and without it you can't sign back in on another device.</p>
+      {nsec ? (
+        <>
+          <input readOnly value={nsec} onFocus={(e) => e.target.select()} aria-label="Secret key" />
+          <button type="button" className="secondary" onClick={() => navigator.clipboard?.writeText(nsec)}>Copy</button>
+          <button type="button" className="link" onClick={() => setShown(false)}>Hide</button>
+        </>
+      ) : (
+        <button type="button" className="secondary" onClick={() => setShown(true)}>Show my secret key</button>
+      )}
+    </section>
   );
 }

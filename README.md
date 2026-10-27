@@ -111,3 +111,22 @@ Amounts are always in sats; the app shows an approximate naira value next to the
 median of Yadio, blockchain.info and CoinGecko (public, no keys), cached for 10 minutes. If none
 respond, only sats are shown. Organizers can set a contribution in naira, which is converted to sats
 once at the time; the group is fixed in sats, so its naira value drifts with the market.
+
+## Invite links and paying from any wallet
+
+An organizer can create a group "with an invite link": the group starts in a *forming* state (the
+coordinator ignores it), the organizer shares a link, and people open it, continue with one click
+(an account is created on their device), enter their Lightning address and ask to join. The
+organizer approves each request and then starts the group. The link carries only the group's name,
+amount and frequency, never its key; requests are encrypted to the organizer.
+
+Members pay with any Lightning wallet by scanning the QR code on the pay card. If the recipient's
+Lightning provider offers a verify link (LUD-21; Alby does, Wallet of Satoshi does not), the
+coordinator confirms the payment by itself. Otherwise the member pastes the payment proof or pays
+with a connected wallet. Everything the coordinator fetches from member-controlled addresses goes
+through a guard that refuses private and local addresses.
+
+```
+npm run e2e:invite -w @ajo/web         # two browser identities, a real payment from outside the app
+npm run e2e:live-verify -w @ajo/bot    # the bot confirming an outside payment through a verify link
+```

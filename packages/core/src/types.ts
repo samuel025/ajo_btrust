@@ -12,6 +12,8 @@ export interface GroupDef {
   startDate: number;
   /** Hex pubkey of the coordinator bot, allowed to publish round state. */
   coordinator: string;
+  /** True while the organizer is still adding members from invite links. The coordinator ignores a forming group. */
+  forming?: boolean;
 }
 
 /** A group is addressed by its organizer and id, so nobody else can publish a lookalike. */

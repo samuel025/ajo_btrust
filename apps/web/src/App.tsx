@@ -4,6 +4,9 @@ import { restoreSigner, type Signer } from './lib/signer';
 import { loadSettings, saveSettings, type Settings } from './lib/settings';
 import { useRoute } from './lib/hooks';
 import { Login } from './pages/Login';
+import { InvitePage } from './pages/InvitePage';
+import { parseInvite } from './lib/invite';
+import { withNaira } from './lib/rate';
 import { Home } from './pages/Home';
 import { NewGroup } from './pages/NewGroup';
 import { GroupPage } from './pages/GroupPage';
@@ -30,13 +33,23 @@ export function App() {
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
-  if (!signer) return <Login onSignedIn={setSigner} />;
+  const invite = parseInvite(route);
+  if (!signer) {
+    const banner = invite && (
+      <section className="card notice">
+        <strong>You're invited to {invite.name}</strong>
+        <div className="muted">{withNaira(invite.amountSats, rate)} per round. Sign in to ask to join.</div>
+      </section>
+    );
+    return <Login onSignedIn={setSigner} banner={banner} />;
+  }
 
   const ctx: Ctx = { signer, settings, navigate, rate };
   const group = route.match(/^\/g\/([0-9a-f]{64})\/(.+)$/);
 
   let page;
-  if (group) page = <GroupPage ctx={ctx} author={group[1]!} id={decodeURIComponent(group[2]!)} />;
+  if (invite) page = <InvitePage ctx={ctx} invite={invite} />;
+  else if (group) page = <GroupPage ctx={ctx} author={group[1]!} id={decodeURIComponent(group[2]!)} />;
   else if (route === '/new') page = <NewGroup ctx={ctx} />;
   else if (route === '/settings') {
     page = <SettingsPage ctx={ctx} onSave={(s) => { saveSettings(s); setSettings(s); navigate('/'); }} onSignOut={() => setSigner(undefined)} />;

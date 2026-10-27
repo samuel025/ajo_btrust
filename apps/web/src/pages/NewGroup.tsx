@@ -16,6 +16,8 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
   const [start, setStart] = useState(inAWeek);
   const [coordinator, setCoordinator] = useState(ctx.settings.coordinator);
   const [members, setMembers] = useState(`${me}\n`);
+  // Inviting by link is the easy path; pasting npubs is for organizers who already have them.
+  const [mode, setMode] = useState<'invite' | 'npubs'>('invite');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
@@ -23,8 +25,8 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
     e.preventDefault();
     setError(undefined);
     try {
-      const payoutOrder = parseMembers(members);
-      if (payoutOrder.length < 2) throw new Error('A group needs at least two members.');
+      const payoutOrder = mode === 'invite' ? [ctx.signer.pubkey] : parseMembers(members);
+      if (mode === 'npubs' && payoutOrder.length < 2) throw new Error('A group needs at least two members.');
       if (!payoutOrder.includes(ctx.signer.pubkey)) throw new Error('Include yourself in the member list.');
       const amountSats = Number(amount);
       if (!Number.isInteger(amountSats) || amountSats < 1) throw new Error('Enter the contribution as a whole number of sats.');
@@ -36,6 +38,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
         id, name: name.trim(), amountSats, frequency, payoutOrder,
         startDate: Math.floor(new Date(`${start}T09:00:00`).getTime() / 1000),
         coordinator: toHexPubkey(coordinator),
+        forming: mode === 'invite' || undefined,
       }, createGroupKey(), ctx.signer.cipher));
       ctx.navigate(`/g/${ctx.signer.pubkey}/${encodeURIComponent(id)}`);
     } catch (err) {
@@ -75,10 +78,17 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
       <label>First round is due
         <input type="date" required value={start} onChange={(e) => setStart(e.target.value)} />
       </label>
-      <label>Members, in payout order (one npub per line)
-        <textarea rows={5} required value={members} onChange={(e) => setMembers(e.target.value)} />
-        <span className="muted small">The first person is paid in round 1. Everyone is paid exactly once.</span>
-      </label>
+      <fieldset className="mode">
+        <legend>Who is in the group?</legend>
+        <label className="radio"><input type="radio" checked={mode === 'invite'} onChange={() => setMode('invite')} /> I'll send an invite link <span className="muted small">(easiest: people join from the link and you approve them)</span></label>
+        <label className="radio"><input type="radio" checked={mode === 'npubs'} onChange={() => setMode('npubs')} /> I already have everyone's Nostr keys</label>
+      </fieldset>
+      {mode === 'npubs' && (
+        <label>Members, in payout order (one npub per line)
+          <textarea rows={5} required value={members} onChange={(e) => setMembers(e.target.value)} />
+          <span className="muted small">The first person is paid in round 1. Everyone is paid exactly once.</span>
+        </label>
+      )}
       <label>Coordinator bot key (npub or hex)
         <input value={coordinator} onChange={(e) => setCoordinator(e.target.value)} placeholder="npub1…" />
         <span className="muted small">The bot that runs rounds and checks payments for this group.</span>

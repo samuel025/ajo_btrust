@@ -64,3 +64,8 @@ export function restoreSigner(): Signer | undefined {
 export function forgetLocalKey() {
   try { localStorage.removeItem(KEY); } catch { /* nothing to forget */ }
 }
+
+/** The nsec of the key kept in this browser, for backing it up. */
+export function localSecretKey(): string | undefined {
+  try { return localStorage.getItem(KEY) ?? undefined; } catch { return undefined; }
+}

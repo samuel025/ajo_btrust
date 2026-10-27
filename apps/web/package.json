@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e:browser": "tsx --env-file=../../.env e2e/browser.ts",
-    "e2e:reputation": "tsx e2e/reputation.ts"
+    "e2e:reputation": "tsx e2e/reputation.ts",
+    "e2e:invite": "tsx --env-file=../../.env e2e/invite.ts"
   },
   "dependencies": {
     "@ajo/core": "*",

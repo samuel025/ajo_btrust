@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { extensionSigner, hasExtension, localSigner, type Signer } from '../lib/signer';
 
-export function Login({ onSignedIn }: { onSignedIn: (s: Signer) => void }) {
+export function Login({ onSignedIn, banner }: { onSignedIn: (s: Signer) => void; banner?: React.ReactNode }) {
   const [error, setError] = useState<string>();
   const [nsec, setNsec] = useState('');
 
@@ -9,9 +9,36 @@ export function Login({ onSignedIn }: { onSignedIn: (s: Signer) => void }) {
     try { onSignedIn(await fn()); } catch (e) { setError((e as Error).message); }
   };
 
+  // Someone arriving from an invite link just wants to continue; the Nostr details can wait.
+  if (banner) {
+    return (
+      <main className="narrow">
+        <h1>Bitcoin Ajo</h1>
+        {banner}
+        <section className="card">
+          <h2>Continue</h2>
+          <p className="muted">
+            We'll set up your account on this device. It takes one click and needs no email or password.
+            Back it up later in Settings so you can sign in again if you switch devices.
+          </p>
+          <button onClick={() => attempt(() => localSigner())}>Continue</button>
+          <details>
+            <summary>I already have a Nostr account</summary>
+            <button className="secondary" disabled={!hasExtension()} onClick={() => attempt(extensionSigner)}>Use my Nostr extension</button>
+            {!hasExtension() && <p className="muted small">No extension found in this browser.</p>}
+            <input placeholder="or paste your key: nsec1…" value={nsec} onChange={(e) => setNsec(e.target.value)} />
+            <button className="secondary" disabled={!nsec} onClick={() => attempt(() => localSigner(nsec.trim()))}>Use this key</button>
+          </details>
+        </section>
+        {error && <p className="error">{error}</p>}
+      </main>
+    );
+  }
+
   return (
     <main className="narrow">
       <h1>Bitcoin Ajo</h1>
+      {banner}
       <p className="lead">
         A savings circle you can trust without a middleman. Each round, everyone pays the member whose
         turn it is, straight to their wallet over Lightning.

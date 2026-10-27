@@ -53,6 +53,17 @@ describe('runOnce', () => {
     expect(ledger.rounds.get(1)).toMatchObject({ recipient: a, payoutOrder: [b, a] });
   });
 
+  it('does nothing for a group that is still forming, or has fewer than two members', async () => {
+    for (const unready of [{ ...group, forming: true }, { ...group, payoutOrder: [a] }]) {
+      const ledger = memoryLedger();
+      ledger.group = async () => unready;
+      const fetched: string[] = [];
+      expect(await runOnce(ledger, ref, async (address) => { fetched.push(address); return { invoice: 'x' }; })).toEqual([]);
+      expect(fetched).toEqual([]);
+      expect(ledger.rounds.size).toBe(0);
+    }
+  });
+
   it('refuses a group it cannot read', async () => {
     const ledger = { ...memoryLedger(), group: async () => undefined };
     await expect(runOnce(ledger, ref, async () => ({ invoice: 'x' }))).rejects.toThrow(/not found/);

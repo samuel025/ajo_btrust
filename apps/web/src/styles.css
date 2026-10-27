@@ -58,3 +58,14 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
 .qr { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 .qr img { border: 1px solid var(--border); border-radius: 8px; background: #fff; }
 .qr-actions { display: flex; flex-direction: column; gap: 8px; }
+
+fieldset.mode { border: 1px solid var(--border); border-radius: 8px; margin: 14px 0; padding: 8px 12px; }
+fieldset.mode legend { font-weight: 500; padding: 0 6px; }
+label.radio { font-weight: 400; margin: 6px 0; }
+label.radio input { width: auto; margin: 0 6px 0 0; }
+.requests { list-style: none; padding: 0; margin: 8px 0; }
+.requests li { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.linkbox { display: flex; gap: 8px; }
+.linkbox input { margin-top: 0; font-size: .85rem; }
+
+.linkbox { margin-bottom: 8px; }

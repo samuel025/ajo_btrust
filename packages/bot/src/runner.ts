@@ -63,6 +63,8 @@ export async function runOnce(
 ): Promise<Action[]> {
   const published = await ledger.group(ref);
   if (!published) throw new Error(`group ${ref.id} not found (or not readable by this coordinator)`);
+  // A group still taking members from invite links has no schedule yet.
+  if (published.forming || published.payoutOrder.length < 2) return [];
   const current = await currentRound(ledger, published);
   if (!current) return [];
 

@@ -4,7 +4,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
-  checkVerify, standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
+  parseRequest, requestEvent, checkVerify, standings, ON_TIME_SLACK_SECONDS, answerEvent, askEvent, noticeEvent, parseAnswer, parseAsk, parseNotice, autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
@@ -223,6 +223,36 @@ describe('checkVerify', () => {
   it('treats junk as not settled, and surfaces a provider error', async () => {
     expect((await checkVerify('https://w/v', respond('garbage'))).settled).toBe(false);
     await expect(checkVerify('https://w/v', respond({ status: 'ERROR', reason: 'unknown invoice' }))).rejects.toThrow('unknown invoice');
+  });
+});
+
+describe('join requests and forming groups', () => {
+  const outsider = sk();
+
+  it('a request can be read only by the organizer and the requester', async () => {
+    const event = finalizeEvent(await requestEvent(group.id, pk(a), { lightningAddress: 'new@wallet.com', language: 'ha' }, secretKeyCipher(b)), b);
+    expect(JSON.stringify(event)).not.toContain('wallet.com');
+    expect(await parseRequest(event, pk(b), secretKeyCipher(a))).toMatchObject({ member: pk(b), lightningAddress: 'new@wallet.com', language: 'ha', id: event.id });
+    expect((await parseRequest(event, pk(a), secretKeyCipher(b))).lightningAddress).toBe('new@wallet.com');
+    await expect(parseRequest(event, pk(b), secretKeyCipher(outsider))).rejects.toThrow();
+  });
+
+  it('rejects a request whose address is not name@domain', async () => {
+    const event = finalizeEvent(await requestEvent(group.id, pk(a), { lightningAddress: 'not an address' }, secretKeyCipher(b)), b);
+    await expect(parseRequest(event, pk(b), secretKeyCipher(a))).rejects.toThrow(/malformed/);
+  });
+
+  it('keeps the forming flag, and a new member can read a group the organizer updated', async () => {
+    const key = createGroupKey();
+    const forming = { ...group, payoutOrder: [pk(a)], forming: true };
+    const first = await parseGroup(finalizeEvent(await groupEvent(forming, key, secretKeyCipher(a)), a), pk(a), secretKeyCipher(a));
+    expect(first.group).toMatchObject({ forming: true, payoutOrder: [pk(a)] });
+    // before approval b has no key
+    await expect(parseGroup(finalizeEvent(await groupEvent(forming, key, secretKeyCipher(a)), a), pk(b), secretKeyCipher(b))).rejects.toThrow(/no key/);
+    const approved = { ...forming, payoutOrder: [pk(a), pk(b)] };
+    const read = await parseGroup(finalizeEvent(await groupEvent(approved, key, secretKeyCipher(a)), a), pk(b), secretKeyCipher(b));
+    expect(read.group.payoutOrder).toEqual([pk(a), pk(b)]);
+    expect(read.key).toEqual(key);
   });
 });
 

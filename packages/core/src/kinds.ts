@@ -11,3 +11,5 @@ export const KIND_AUTOPAY = 38704;
 export const KIND_ASK = 8705;
 export const KIND_ANSWER = 8706;
 export const KIND_NOTICE = 8707;
+// A request to join a group that is still forming, encrypted to the organizer.
+export const KIND_REQUEST = 8708;

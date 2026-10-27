@@ -1,8 +1,8 @@
 import { SimplePool, type EventTemplate, type NostrEvent } from 'nostr-tools';
 import {
-  KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_NOTICE, KIND_ROUND, parseAnswer, parseAsk, parseAutopay,
-  parseGroup, parseJoin, parseNotice, parseRound,
-  type Answer, type GroupDef, type GroupKey, type GroupRef, type Notice, type Question, type RoundState,
+  KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_NOTICE, KIND_REQUEST, KIND_ROUND, groupEvent, parseAnswer,
+  parseAsk, parseAutopay, parseGroup, parseJoin, parseNotice, parseRequest, parseRound, requestEvent,
+  type Answer, type GroupDef, type GroupKey, type GroupRef, type JoinRequest, type Language, type Notice, type Question, type RoundState,
 } from '@ajo/core';
 import type { Signer } from './signer';
 
@@ -43,16 +43,19 @@ export interface GroupActivity {
   thread: { question: Question; answer?: Answer }[];
   /** Reminders the coordinator sent this member, newest first. */
   notices: Notice[];
+  /** People who asked the organizer (this member) to add them to a forming group. */
+  requests: JoinRequest[];
 }
 
 export async function loadActivity(relay: string, group: GroupDef, key: GroupKey, signer: Signer): Promise<GroupActivity> {
-  const [joins, roundEvents, grants, asks, answers, noticeEvents] = await Promise.all([
+  const [joins, roundEvents, grants, asks, answers, noticeEvents, requestEvents] = await Promise.all([
     pool.querySync([relay], { kinds: [KIND_JOIN], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_ROUND], authors: [group.coordinator], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_AUTOPAY], authors: [signer.pubkey], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_ASK], authors: [signer.pubkey], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_ANSWER], authors: [group.coordinator], '#a': [group.id], '#p': [signer.pubkey] }),
     pool.querySync([relay], { kinds: [KIND_NOTICE], authors: [group.coordinator], '#a': [group.id], '#p': [signer.pubkey] }),
+    pool.querySync([relay], { kinds: [KIND_REQUEST], '#a': [group.id], '#p': [signer.pubkey] }),
   ]);
 
   const addresses: Record<string, string> = {};
@@ -90,11 +93,39 @@ export async function loadActivity(relay: string, group: GroupDef, key: GroupKey
     .map((question) => ({ question, answer: replies.find((r) => r.questionId === question.id) }));
   const notices = (await read(noticeEvents, (e) => parseNotice(e, group.coordinator, signer.cipher))).sort((x, y) => y.at - x.at);
 
-  return { addresses, rounds, autopay, thread, notices };
+  // Requests addressed to me (only an organizer receives any), minus people already added.
+  const requests = (await read(requestEvents, (e) => parseRequest(e, e.pubkey, signer.cipher)))
+    .filter((r) => !group.payoutOrder.includes(r.member))
+    .sort((x, y) => x.at - y.at);
+
+  return { addresses, rounds, autopay, thread, notices, requests };
 }
 
 export async function publish(relay: string, signer: Signer, template: EventTemplate) {
   const event = await signer.sign(template);
   await Promise.any(pool.publish([relay], event));
   return event;
+}
+
+/** Like loadGroup, but a person who hasn't been approved yet (no key for them) gets undefined, not an error. */
+export async function loadGroupIfMember(relay: string, ref: GroupRef, signer: Signer): Promise<LoadedGroup | undefined> {
+  try {
+    return await loadGroup(relay, ref, signer);
+  } catch (e) {
+    if (/no key for you/.test(String((e as Error).message))) return undefined;
+    throw e;
+  }
+}
+
+/** Publishes a new version of a group the signer organizes. It must be newer than the one it replaces. */
+export async function publishGroupUpdate(relay: string, signer: Signer, group: GroupDef, key: GroupKey) {
+  const existing = await pool.querySync([relay], { kinds: [KIND_GROUP], authors: [signer.pubkey], '#d': [group.id] });
+  const newestAt = Math.max(0, ...existing.map((e) => e.created_at));
+  const createdAt = Math.max(Math.floor(Date.now() / 1000), newestAt + 1);
+  return publish(relay, signer, await groupEvent(group, key, signer.cipher, createdAt));
+}
+
+/** Asks an organizer to add the signer to their group. */
+export async function sendJoinRequest(relay: string, signer: Signer, ref: GroupRef, request: { lightningAddress: string; language: Language }) {
+  return publish(relay, signer, await requestEvent(ref.id, ref.author, request, signer.cipher));
 }

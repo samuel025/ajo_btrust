@@ -1,5 +1,5 @@
 import type { EventTemplate, NostrEvent } from 'nostr-tools';
-import { KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_NOTICE, KIND_RECEIPT, KIND_ROUND } from './kinds';
+import { KIND_ANSWER, KIND_ASK, KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_NOTICE, KIND_RECEIPT, KIND_REQUEST, KIND_ROUND } from './kinds';
 import { open, seal, unwrapKey, wrapKey, type Cipher, type GroupKey } from './crypto';
 import type { GroupDef, GroupRef, Join, Language, Receipt, ReminderStage, RoundState } from './types';
 
@@ -195,4 +195,24 @@ export async function parseNotice(event: NostrEvent, peer: string, cipher: Ciphe
   expectKind(event, KIND_NOTICE);
   const { text } = JSON.parse(await cipher.decrypt(peer, event.content)) as { text: string };
   return { member: tag(event, 'p'), round: Number(tag(event, 'round')), stage: tag(event, 'stage') as ReminderStage, text, at: event.created_at };
+}
+
+export interface JoinRequest { id: string; member: string; lightningAddress: string; language?: Language; at: number }
+
+/** Someone with an invite link asks the organizer to add them. Only the organizer can read it. */
+export async function requestEvent(groupId: string, organizer: string, request: { lightningAddress: string; language?: Language }, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
+  return {
+    kind: KIND_REQUEST,
+    created_at: createdAt,
+    tags: [['a', groupId], ['p', organizer]],
+    content: await cipher.encrypt(organizer, JSON.stringify(request)),
+  };
+}
+
+/** `peer` is the organizer when the requester reads their own request, and the requester when the organizer reads it. */
+export async function parseRequest(event: NostrEvent, peer: string, cipher: Cipher): Promise<JoinRequest> {
+  expectKind(event, KIND_REQUEST);
+  const { lightningAddress, language } = JSON.parse(await cipher.decrypt(peer, event.content)) as { lightningAddress: string; language?: Language };
+  if (typeof lightningAddress !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(lightningAddress)) throw new Error('malformed request');
+  return { id: event.id, member: event.pubkey, lightningAddress, language, at: event.created_at };
 }
