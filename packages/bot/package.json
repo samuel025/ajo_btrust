@@ -11,7 +11,9 @@
     "e2e": "tsx e2e/round.ts",
     "e2e:live": "tsx --env-file=../../.env e2e/live.ts",
     "lnurl": "tsx --env-file=../../.env src/dev-lnurl-main.ts",
-    "keygen": "tsx src/keygen.ts"
+    "keygen": "tsx src/keygen.ts",
+    "e2e:autopay": "tsx e2e/autopay.ts",
+    "e2e:live-autopay": "tsx --env-file=../../.env e2e/live-autopay.ts"
   },
   "dependencies": {
     "@ajo/core": "*",

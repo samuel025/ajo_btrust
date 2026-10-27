@@ -4,7 +4,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
-  createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
+  autopayEvent, parseAutopay, createGroupKey, deferRecipient, effectiveGroup, fetchInvoice, groupEvent, secretKeyCipher, isRoundComplete, joinEvent, lightningAddressUrl,
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
@@ -105,6 +105,37 @@ describe('events', () => {
     const rounds = new Map([[0, openRound(deferred, 0)]]);
     expect(effectiveGroup(group, rounds).payoutOrder).toEqual([pk(b), pk(c), pk(a)]);
     expect(effectiveGroup(group, new Map())).toBe(group);
+  });
+});
+
+describe('autopay grants', () => {
+  const url = 'nostr+walletconnect://abc123?relay=wss://r&secret=topsecret';
+  const outsider = sk();
+
+  it('can be read by the coordinator and the member who made it, and by nobody else', async () => {
+    const event = finalizeEvent(await autopayEvent(group.id, url, pk(bot), secretKeyCipher(a)), a);
+    expect(JSON.stringify(event)).not.toContain('topsecret');
+    expect(await parseAutopay(event, pk(a), secretKeyCipher(bot))).toEqual({ member: pk(a), nwcUrl: url });
+    expect(await parseAutopay(event, pk(bot), secretKeyCipher(a))).toEqual({ member: pk(a), nwcUrl: url });
+    await expect(parseAutopay(event, pk(a), secretKeyCipher(outsider))).rejects.toThrow();
+  });
+
+  it('is revoked by publishing a null connection', async () => {
+    const event = finalizeEvent(await autopayEvent(group.id, null, pk(bot), secretKeyCipher(a)), a);
+    expect((await parseAutopay(event, pk(a), secretKeyCipher(bot))).nwcUrl).toBeNull();
+  });
+});
+
+describe('coordinator receipts', () => {
+  const key = createGroupKey();
+  const receipt = { groupId: group.id, round: 0, payer: pk(b), recipient: pk(a), invoice: 'lnbc1', preimage: 'ff' };
+
+  it("names the member as payer only when the coordinator signed it", () => {
+    const byBot = finalizeEvent(receiptEvent(receipt, key), bot);
+    expect(parseReceipt(byBot, key, pk(bot)).payer).toBe(pk(b));
+    // anyone else claiming a payer tag is still treated as the payer themselves
+    const byMember = finalizeEvent(receiptEvent({ ...receipt, payer: pk(c) }, key), a);
+    expect(parseReceipt(byMember, key, pk(bot)).payer).toBe(pk(a));
   });
 });
 

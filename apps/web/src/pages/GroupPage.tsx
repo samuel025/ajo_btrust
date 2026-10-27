@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type RoundState } from '@ajo/core';
+import { autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type RoundState } from '@ajo/core';
 import { loadActivity, loadGroup, publish, type GroupActivity } from '../lib/ledger';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
@@ -23,7 +23,7 @@ export function GroupPage({ ctx, author, id }: { ctx: Ctx; author: string; id: s
 function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; groupKey: GroupKey }) {
   const relay = ctx.settings.relay;
   const me = ctx.signer.pubkey;
-  const { data: activity, refresh } = usePoll(() => loadActivity(relay, published, groupKey), [relay, published.id]);
+  const { data: activity, refresh } = usePoll(() => loadActivity(relay, published, groupKey, ctx.signer), [relay, published.id]);
   // A deferred recipient changes the payout order; the coordinator records it in the round state.
   const group = activity ? effectiveGroup(published, activity.rounds) : published;
   const isMember = group.payoutOrder.includes(me);
@@ -41,6 +41,8 @@ function Loaded({ ctx, published, groupKey }: { ctx: Ctx; published: GroupDef; g
       {isMember && activity && activity.addresses[me] && (
         <ActionCard ctx={ctx} group={group} groupKey={groupKey} activity={activity} round={current} onPaid={refresh} />
       )}
+
+      {isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
 
       <h2>Schedule</h2>
       <table>
@@ -154,6 +156,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
     <section className="card">
       <h2>{heading}: pay {shortKey(state.recipient)}</h2>
       <p>{formatSats(group.amountSats)} due by {formatDate(state.deadline)}.</p>
+      {activity.autopay && <p className="muted">Auto-pay is on, so the coordinator will pay this for you. You can also pay now.</p>}
       {!invoice && <p className="muted">Waiting for the coordinator to get your invoice from the recipient.</p>}
       {invoice && !ctx.settings.nwcUrl && <p className="muted">Connect your wallet in <a href="#/settings">Settings</a> to pay from here.</p>}
       {error && <p className="error">{error}</p>}
@@ -161,5 +164,52 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
         {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
       </button>
     </section>
+  );
+}
+
+function AutopayCard({ ctx, group, enabled, onChanged }: { ctx: Ctx; group: GroupDef; enabled: boolean; onChanged: () => void }) {
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const save = async (nwcUrl: string | null) => {
+    setError(undefined);
+    if (nwcUrl !== null && !nwcUrl.startsWith('nostr+walletconnect://')) return setError('Paste a wallet connection that starts with nostr+walletconnect://');
+    setBusy(true);
+    try {
+      await publish(ctx.settings.relay, ctx.signer, await autopayEvent(group.id, nwcUrl, group.coordinator, ctx.signer.cipher));
+      setUrl('');
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (enabled) {
+    return (
+      <section className="card">
+        <h2>Auto-pay is on</h2>
+        <p className="muted">The coordinator pays your {formatSats(group.amountSats)} each round, up to the budget you set in your wallet.</p>
+        {error && <p className="error">{error}</p>}
+        <button className="secondary" disabled={busy} onClick={() => save(null)}>Turn off</button>
+      </section>
+    );
+  }
+  return (
+    <details className="card">
+      <summary><strong>Pay automatically (optional)</strong></summary>
+      <p className="muted">
+        In your wallet, create a new connection that can only pay invoices, with a budget of about {formatSats(group.amountSats)} per{' '}
+        {group.frequency === 'monthly' ? 'month' : 'week'}. Paste it here and the coordinator pays your share each round. Only the
+        coordinator can read it, and you can turn it off at any time.
+      </p>
+      <label>Wallet connection for the coordinator
+        <input type="password" autoComplete="off" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="nostr+walletconnect://…" />
+      </label>
+      {error && <p className="error">{error}</p>}
+      <button disabled={busy || !url} onClick={() => save(url.trim())}>Turn on auto-pay</button>
+    </details>
   );
 }

@@ -1,6 +1,7 @@
 import { nip19 } from 'nostr-tools';
 import { fetchInvoice, type GroupRef } from '@ajo/core';
 import { discoverGroups, nostrLedger } from './nostr-ledger';
+import { payInvoice } from './pay';
 import { runOnce } from './runner';
 
 const nsec = process.env.BOT_NSEC;
@@ -22,6 +23,8 @@ const secretKey = decoded.data;
 const toHex = (key: string) => (key.startsWith('npub') ? (nip19.decode(key as `npub1${string}`).data as string) : key);
 const ledger = nostrLedger(relays, secretKey);
 const INTERVAL_MS = 30_000;
+/** Invoices this process has already paid, so a failed publish never leads to a second payment. */
+const paid = new Map<string, string>();
 
 async function loop() {
   const refs: GroupRef[] = [
@@ -33,7 +36,7 @@ async function loop() {
   ];
   for (const ref of refs) {
     try {
-      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats));
+      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats), undefined, { pay: payInvoice, paid });
       for (const action of actions) console.log(ref.id, JSON.stringify(action));
     } catch (e) {
       console.error(ref.id, (e as Error).message);

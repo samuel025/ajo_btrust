@@ -69,3 +69,62 @@ describe('tick', () => {
     expect(result.state).toMatchObject({ round: 0, recipient: b, status: 'open' });
   });
 });
+
+describe('auto-pay', () => {
+  const payNow = group.startDate - 86_400;
+  const issue = () => tick({ group, state: openRound(group, 0), addresses, receipts: [], fetchInvoice, now: payNow });
+
+  it('pays opted-in members from the invoice it issued and records a receipt', async () => {
+    const issued = await issue();
+    const paidInvoices: string[] = [];
+    const autoPay = async (member: string, invoice: string) => {
+      if (member !== b) return undefined; // c has not opted in
+      paidInvoices.push(invoice);
+      return preimages.get(invoice);
+    };
+    const result = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, autoPay, now: payNow });
+    expect(paidInvoices).toEqual([issued.state.invoices[b]]);
+    expect(result.state.paid).toEqual([b]);
+    expect(result.autoReceipts).toMatchObject([{ payer: b, recipient: a, round: 0 }]);
+    expect(result.actions).toContainEqual({ type: 'autopaid', payer: b });
+  });
+
+  it('never pays for an invoice with the wrong amount', async () => {
+    const issued = await issue();
+    const wrong = (await fetchInvoice('x@x.com', 999)).invoice;
+    let paid = false;
+    const result = await tick({
+      group, state: { ...issued.state, invoices: { ...issued.state.invoices, [b]: wrong } },
+      addresses, receipts: [], fetchInvoice, now: payNow,
+      autoPay: async (member) => { if (member === b) paid = true; return undefined; },
+    });
+    expect(paid).toBe(false);
+    expect(result.actions).toContainEqual({ type: 'autopay-failed', payer: b, reason: 'invoice amount does not match the contribution' });
+  });
+
+  it('does not count a payment whose preimage fails verification', async () => {
+    const issued = await issue();
+    const result = await tick({ group, state: issued.state, addresses, receipts: [], fetchInvoice, now: payNow, autoPay: async (m) => (m === b ? '00'.repeat(32) : undefined) });
+    expect(result.state.paid).toEqual([]);
+    expect(result.autoReceipts).toEqual([]);
+    expect(result.actions.some((x) => x.type === 'autopay-failed' && x.payer === b)).toBe(true);
+  });
+
+  it('reports a failed payment without stopping the others', async () => {
+    const issued = await issue();
+    const result = await tick({
+      group, state: issued.state, addresses, receipts: [], fetchInvoice, now: payNow,
+      autoPay: async (member, invoice) => { if (member === b) throw new Error('budget exceeded'); return preimages.get(invoice); },
+    });
+    expect(result.actions).toContainEqual({ type: 'autopay-failed', payer: b, reason: 'budget exceeded' });
+    expect(result.state.paid).toEqual([c]);
+  });
+
+  it('does not pay again once the member already has a valid receipt', async () => {
+    const issued = await issue();
+    const receipt = { groupId: 'g', round: 0, payer: b, recipient: a, invoice: issued.state.invoices[b]!, preimage: preimages.get(issued.state.invoices[b]!)! };
+    let calls = 0;
+    await tick({ group, state: issued.state, addresses, receipts: [receipt], fetchInvoice, now: payNow, autoPay: async (m, i) => { if (m === b) calls++; return preimages.get(i); } });
+    expect(calls).toBe(0);
+  });
+});

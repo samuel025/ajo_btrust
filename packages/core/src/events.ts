@@ -1,5 +1,5 @@
 import type { EventTemplate, NostrEvent } from 'nostr-tools';
-import { KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND } from './kinds';
+import { KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND } from './kinds';
 import { open, seal, unwrapKey, wrapKey, type Cipher, type GroupKey } from './crypto';
 import type { GroupDef, GroupRef, Join, Receipt, RoundState } from './types';
 
@@ -55,6 +55,8 @@ export function receiptEvent(receipt: Receipt, key: GroupKey, createdAt = now())
       ['a', receipt.groupId],
       ['round', String(receipt.round)],
       ['p', receipt.recipient],
+      // Names the payer when the coordinator publishes the receipt for an auto-pay member.
+      ['payer', receipt.payer],
     ],
     content: seal(key, { invoice: receipt.invoice, preimage: receipt.preimage }),
   };
@@ -103,13 +105,39 @@ export function parseRound(event: NostrEvent, group: GroupDef, key: GroupKey): R
   return state;
 }
 
-export function parseReceipt(event: NostrEvent, key: GroupKey): Receipt {
+/**
+ * A receipt's payer is its signer, except that the group's coordinator may publish receipts
+ * for members who opted in to auto-pay, naming them in the `payer` tag.
+ */
+export function parseReceipt(event: NostrEvent, key: GroupKey, coordinator?: string): Receipt {
   expectKind(event, KIND_RECEIPT);
+  const byCoordinator = coordinator !== undefined && event.pubkey === coordinator;
   return {
     groupId: tag(event, 'a'),
     round: Number(tag(event, 'round')),
-    payer: event.pubkey,
+    payer: byCoordinator ? tag(event, 'payer') : event.pubkey,
     recipient: tag(event, 'p'),
     ...open<{ invoice: string; preimage: string }>(key, event.content),
   };
+}
+
+/**
+ * Grants (or, with `nwcUrl: null`, revokes) the coordinator's permission to pay this member's
+ * contributions. The wallet connection is encrypted to the coordinator, so relays can't read it.
+ * It should carry a spending budget set in the member's own wallet.
+ */
+export async function autopayEvent(groupId: string, nwcUrl: string | null, coordinator: string, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
+  return {
+    kind: KIND_AUTOPAY,
+    created_at: createdAt,
+    tags: [['d', groupId], ['a', groupId], ['p', coordinator]],
+    content: await cipher.encrypt(coordinator, JSON.stringify({ nwcUrl })),
+  };
+}
+
+/** `peer` is the other party to the encryption: the member when the coordinator reads, the coordinator when the member does. */
+export async function parseAutopay(event: NostrEvent, peer: string, cipher: Cipher): Promise<{ member: string; nwcUrl: string | null }> {
+  expectKind(event, KIND_AUTOPAY);
+  const { nwcUrl } = JSON.parse(await cipher.decrypt(peer, event.content)) as { nwcUrl: string | null };
+  return { member: event.pubkey, nwcUrl };
 }

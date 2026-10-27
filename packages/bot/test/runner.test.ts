@@ -9,16 +9,19 @@ const group: GroupDef = {
 };
 const ref: GroupRef = { author: 'ee'.repeat(32), id: 'g' };
 
-function memoryLedger(): Ledger & { rounds: Map<number, RoundState>; groupReads: GroupRef[] } {
+function memoryLedger(grants: Record<string, string> = {}): Ledger & { rounds: Map<number, RoundState>; groupReads: GroupRef[]; events: string[] } {
   const rounds = new Map<number, RoundState>();
   const groupReads: GroupRef[] = [];
+  const events: string[] = [];
   return {
-    rounds, groupReads,
+    rounds, groupReads, events,
     group: async (r) => { groupReads.push(r); return group; },
     addresses: async () => ({ [a]: 'a@x.com', [b]: 'b@x.com' }),
     receipts: async () => [],
+    grants: async () => grants,
+    publishReceipt: async (r) => void events.push(`receipt:${r.payer}`),
     round: async (_g, n) => rounds.get(n),
-    publishRound: async (s) => void rounds.set(s.round, s),
+    publishRound: async (s) => { events.push(`round:${s.round}:${s.status}`); rounds.set(s.round, s); },
   };
 }
 
@@ -50,4 +53,51 @@ describe('runOnce', () => {
     const ledger = { ...memoryLedger(), group: async () => undefined };
     await expect(runOnce(ledger, ref, async () => ({ invoice: 'x' }))).rejects.toThrow(/not found/);
   });
+
+  describe('auto-pay', () => {
+    const preimage = '11'.repeat(32);
+    // a real invoice is needed for amount and preimage checks
+    const invoiceFor = async () => {
+      const { default: bolt11 } = await import('bolt11');
+      const { sha256 } = await import('@noble/hashes/sha256');
+      const { bytesToHex, hexToBytes, randomBytes } = await import('@noble/hashes/utils');
+      const encoded = bolt11.encode({
+        satoshis: 1000, timestamp: 1_800_000_000,
+        tags: [
+          { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
+          { tagName: 'description', data: 'ajo' },
+          { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
+        ],
+      });
+      return bolt11.sign(encoded, bytesToHex(randomBytes(32))).paymentRequest!;
+    };
+
+    it('pays once with the grant, publishes the receipt before the round, and never pays twice', async () => {
+      const invoice = await invoiceFor();
+      const ledger = memoryLedger({ [b]: 'nostr+walletconnect://grant' });
+      const payments: string[] = [];
+      const pay = async (nwcUrl: string, inv: string) => { payments.push(`${nwcUrl}|${inv === invoice}`); return { preimage }; };
+      const paid = new Map<string, string>();
+      const run = () => runOnce(ledger, ref, async () => ({ invoice }), group.startDate - 86_400, { pay, paid });
+
+      await run();
+      expect(payments).toEqual(['nostr+walletconnect://grant|true']);
+      expect(ledger.events.slice(0, 3)).toEqual([`receipt:${b}`, 'round:0:complete', 'round:1:open']);
+
+      // a second pass over the same invoice (e.g. after a failed publish) reuses the preimage
+      ledger.rounds.delete(0); ledger.events.length = 0;
+      await run();
+      expect(payments).toHaveLength(1);
+    });
+
+    it('does nothing for members without a grant, or when auto-pay is off', async () => {
+      const invoice = await invoiceFor();
+      let calls = 0;
+      const pay = async () => { calls++; return { preimage }; };
+      await runOnce(memoryLedger({}), ref, async () => ({ invoice }), group.startDate - 86_400, { pay, paid: new Map() });
+      await runOnce(memoryLedger({ [b]: 'nostr+walletconnect://grant' }), ref, async () => ({ invoice }), group.startDate - 86_400, { paid: new Map() });
+      expect(calls).toBe(0);
+    });
+  });
 });
+

@@ -50,3 +50,14 @@ npm run e2e:browser -w @ajo/web
 ```
 
 A fresh test user creates a group, joins, pays over Lightning and the bot confirms the round.
+
+## Auto-pay
+
+A member can let the coordinator pay their contribution each round. They create a wallet
+connection that can only pay invoices, with a budget of about one contribution per period, and
+paste it into the group page. It is encrypted to the coordinator. The wallet enforces the budget.
+
+```
+npm run e2e:autopay -w @ajo/bot        # relay + mocked Lightning
+npm run e2e:live-autopay -w @ajo/bot   # needs NWC_AUTOPAY (budgeted) and NWC_RECIPIENT in .env
+```

@@ -1,6 +1,6 @@
 import { SimplePool, type EventTemplate, type NostrEvent } from 'nostr-tools';
 import {
-  KIND_GROUP, KIND_JOIN, KIND_ROUND, parseGroup, parseJoin, parseRound,
+  KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_ROUND, parseAutopay, parseGroup, parseJoin, parseRound,
   type GroupDef, type GroupKey, type GroupRef, type RoundState,
 } from '@ajo/core';
 import type { Signer } from './signer';
@@ -36,12 +36,15 @@ export async function loadGroup(relay: string, ref: GroupRef, signer: Signer): P
 export interface GroupActivity {
   addresses: Record<string, string>;
   rounds: Map<number, RoundState>;
+  /** Whether this member currently lets the coordinator pay for them. */
+  autopay: boolean;
 }
 
-export async function loadActivity(relay: string, group: GroupDef, key: GroupKey): Promise<GroupActivity> {
-  const [joins, roundEvents] = await Promise.all([
+export async function loadActivity(relay: string, group: GroupDef, key: GroupKey, signer: Signer): Promise<GroupActivity> {
+  const [joins, roundEvents, grants] = await Promise.all([
     pool.querySync([relay], { kinds: [KIND_JOIN], '#a': [group.id] }),
     pool.querySync([relay], { kinds: [KIND_ROUND], authors: [group.coordinator], '#a': [group.id] }),
+    pool.querySync([relay], { kinds: [KIND_AUTOPAY], authors: [signer.pubkey], '#a': [group.id] }),
   ]);
 
   const addresses: Record<string, string> = {};
@@ -57,7 +60,14 @@ export async function loadActivity(relay: string, group: GroupDef, key: GroupKey
       if (!rounds.has(state.round)) rounds.set(state.round, state);
     } catch { /* skip */ }
   }
-  return { addresses, rounds };
+
+  // The member can read their own grant: the encryption is shared with the coordinator.
+  let autopay = false;
+  const latestGrant = newest(grants)[0];
+  if (latestGrant) {
+    try { autopay = (await parseAutopay(latestGrant, group.coordinator, signer.cipher)).nwcUrl !== null; } catch { /* unreadable: treat as off */ }
+  }
+  return { addresses, rounds, autopay };
 }
 
 export async function publish(relay: string, signer: Signer, template: EventTemplate) {

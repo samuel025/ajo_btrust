@@ -1,7 +1,7 @@
 import { SimplePool, finalizeEvent, getPublicKey, type Filter } from 'nostr-tools';
 import {
-  KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND, parseGroup, parseJoin, parseReceipt, parseRound,
-  roundEvent, secretKeyCipher, type GroupKey, type GroupRef, type Receipt, type RoundState,
+  KIND_AUTOPAY, KIND_GROUP, KIND_JOIN, KIND_RECEIPT, KIND_ROUND, parseAutopay, parseGroup, parseJoin, parseReceipt, parseRound,
+  receiptEvent, roundEvent, secretKeyCipher, type GroupKey, type GroupRef, type Receipt, type RoundState,
 } from '@ajo/core';
 import type { Ledger } from './runner';
 
@@ -42,9 +42,26 @@ export function nostrLedger(relays: string[], secretKey: Uint8Array): Ledger {
       const events = await query({ kinds: [KIND_RECEIPT], '#a': [group.id] });
       const receipts: Receipt[] = [];
       for (const event of events) {
-        try { receipts.push(parseReceipt(event, key)); } catch { /* malformed receipts are ignored */ }
+        try { receipts.push(parseReceipt(event, key, group.coordinator)); } catch { /* malformed receipts are ignored */ }
       }
       return receipts;
+    },
+    async grants(group) {
+      const events = await query({ kinds: [KIND_AUTOPAY], '#a': [group.id], authors: group.payoutOrder });
+      const grants: Record<string, string> = {};
+      const seen = new Set<string>();
+      for (const event of events.sort((a, b) => b.created_at - a.created_at)) {
+        if (seen.has(event.pubkey)) continue; // only a member's newest grant counts; it may be a revocation
+        seen.add(event.pubkey);
+        try {
+          const { nwcUrl } = await parseAutopay(event, event.pubkey, cipher);
+          if (nwcUrl) grants[event.pubkey] = nwcUrl;
+        } catch { /* unreadable grants are ignored */ }
+      }
+      return grants;
+    },
+    async publishReceipt(receipt: Receipt) {
+      await Promise.all(pool.publish(relays, finalizeEvent(receiptEvent(receipt, keyFor(receipt.groupId)), secretKey)));
     },
     async round(group, round) {
       const events = await query({ kinds: [KIND_ROUND], authors: [group.coordinator], '#d': [`${group.id}:${round}`] });

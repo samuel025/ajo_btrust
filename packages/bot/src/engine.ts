@@ -5,8 +5,13 @@ import {
 
 export type FetchInvoice = (lightningAddress: string, amountSats: number) => Promise<{ invoice: string }>;
 
+/** Pays one member's invoice from their auto-pay grant and returns the preimage; undefined if they have none. */
+export type AutoPay = (member: string, invoice: string) => Promise<string | undefined>;
+
 export type Action =
   | { type: 'invoice-failed'; payer: string; reason: string }
+  | { type: 'autopaid'; payer: string }
+  | { type: 'autopay-failed'; payer: string; reason: string }
   | { type: 'remind'; members: string[]; deadline: number }
   | { type: 'round-complete'; round: number }
   | { type: 'cycle-complete' }
@@ -20,6 +25,8 @@ export interface TickInput {
   /** Every receipt seen for this group; the engine picks out the ones for this round. */
   receipts: Receipt[];
   fetchInvoice: FetchInvoice;
+  /** Pays on behalf of members who opted in. Omit to disable auto-pay. */
+  autoPay?: AutoPay;
   now: number;
   /** Seconds past the deadline before a stuck recipient is deferred. */
   graceSeconds?: number;
@@ -29,6 +36,8 @@ export interface TickResult {
   group: GroupDef;
   state: RoundState;
   actions: Action[];
+  /** Receipts for payments the coordinator made; to be published before the round state. */
+  autoReceipts: Receipt[];
 }
 
 export const DEFAULT_GRACE_SECONDS = 48 * 3600;
@@ -41,6 +50,7 @@ export async function tick(input: TickInput): Promise<TickResult> {
   const { group, receipts, now } = input;
   const grace = input.graceSeconds ?? DEFAULT_GRACE_SECONDS;
   const actions: Action[] = [];
+  const autoReceipts: Receipt[] = [];
   let state: RoundState = { ...input.state, invoices: { ...input.state.invoices }, paid: [...input.state.paid] };
 
   const recipientAddress = input.addresses[state.recipient];
@@ -54,17 +64,40 @@ export async function tick(input: TickInput): Promise<TickResult> {
     }
   }
 
-  for (const receipt of receipts) {
+  const accept = (receipt: Receipt): boolean => {
     const { payer } = receipt;
     const invoice = state.invoices[payer];
-    if (receipt.round !== state.round || !invoice || state.paid.includes(payer)) continue;
-    if (!group.payoutOrder.includes(payer) || payer === state.recipient) continue;
-    if (receipt.invoice !== invoice) continue;
+    if (receipt.round !== state.round || !invoice || state.paid.includes(payer)) return false;
+    if (!group.payoutOrder.includes(payer) || payer === state.recipient) return false;
+    if (receipt.invoice !== invoice) return false;
     const result = verifyReceipt(receipt, {
       amountSats: group.amountSats,
       recipientPaymentHash: parseInvoice(invoice).paymentHash,
     });
     if (result.ok) state.paid.push(payer);
+    return result.ok;
+  };
+
+  for (const receipt of receipts) accept(receipt);
+
+  // Members who opted in are paid by the coordinator, but only for an invoice it issued itself
+  // and only for exactly the contribution, so a grant can never be spent on anything else.
+  if (input.autoPay) {
+    for (const payer of unpaid(group, state)) {
+      const invoice = state.invoices[payer];
+      if (!invoice) continue;
+      try {
+        if (parseInvoice(invoice).amountMsats !== group.amountSats * 1000) throw new Error('invoice amount does not match the contribution');
+        const preimage = await input.autoPay(payer, invoice);
+        if (preimage === undefined) continue;
+        const receipt: Receipt = { groupId: group.id, round: state.round, payer, recipient: state.recipient, invoice, preimage };
+        if (!accept(receipt)) throw new Error('the payment did not produce a valid receipt');
+        autoReceipts.push(receipt);
+        actions.push({ type: 'autopaid', payer });
+      } catch (e) {
+        actions.push({ type: 'autopay-failed', payer, reason: (e as Error).message });
+      }
+    }
   }
 
   if (isRoundComplete(group, state)) {
@@ -72,20 +105,20 @@ export async function tick(input: TickInput): Promise<TickResult> {
     actions.push({ type: 'round-complete', round: state.round });
     const next = state.round + 1;
     if (isFinished(group, next)) actions.push({ type: 'cycle-complete' });
-    return { group, state, actions };
+    return { group, state, actions, autoReceipts };
   }
 
   if (now > state.deadline + grace && Object.keys(state.invoices).length === 0) {
     // Nobody could get an invoice from the recipient, so the recipient is the problem.
     actions.push({ type: 'recipient-deferred', recipient: state.recipient, round: state.round });
     const deferred = deferRecipient(group, state.round);
-    return { group: deferred, state: openRound(deferred, state.round), actions };
+    return { group: deferred, state: openRound(deferred, state.round), actions, autoReceipts };
   }
 
   if (now >= state.deadline - 24 * 3600) {
     actions.push({ type: 'remind', members: unpaid(group, state), deadline: state.deadline });
   }
-  return { group, state, actions };
+  return { group, state, actions, autoReceipts };
 }
 
 /** The state of the round after a completed one, or undefined when the cycle is over. */
