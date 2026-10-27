@@ -1,168 +1,311 @@
 # Bitcoin Ajo
 
-A non-custodial rotating savings group (ajo/esusu) on Lightning and Nostr. The app never holds
-funds: each round, every member pays that round's recipient directly, and signed Nostr events
-record the group, the schedule and payment receipts.
+A non-custodial ajo (also called esusu): a rotating savings group on Bitcoin's Lightning Network and
+Nostr. A fixed group saves together. Every round, everyone except that round's collector pays the
+collector the same amount, and by the end every member has collected once.
 
-## Layout
+**The app never holds anyone's money.** Members pay the collector directly, wallet to wallet. Signed,
+encrypted Nostr events record the group, the schedule and who has paid. A bot coordinates the rounds.
 
-- `packages/core` – event kinds, schedule logic, receipt verification, LNURL-pay (`npm test`)
-- `packages/bot` – coordinator bot: round engine, relay runner (`npm test`; run with `BOT_NSEC`, `RELAYS`, `GROUPS=<organizer npub>:<group id>` or `ORGANIZERS=<npub>,…`)
-- `apps/web` – frontend (Vite + React): Nostr login, create/join groups, schedule, pay with NWC (`npm run dev -w @ajo/web`)
+> Status: a hackathon project, tested on a Bitcoin test network (Mutinynet) with test coins. Read
+> [Limits](#limits-and-whats-not-done) before putting real money near it.
 
-## Development
+## How it works
 
-Use Mutinynet or regtest only, never real funds.
+**People**
+
+- **Organizer** creates a group and shares an invite link, approves who joins, and starts it.
+- **Member** opens the link, continues with one click (an account is created on their device), enters a
+  Lightning address (where they get paid on their turn), and asks to join.
+- **Coordinator** is a bot that runs the rounds: it fetches invoices, confirms payments, sends
+  reminders, answers questions and records defaults. It never holds funds.
+
+**A group's life**
+
+1. The organizer creates the group: name, amount per round, how often, and a first due date.
+2. People join from the invite link. The organizer approves each request, then starts the group.
+3. **Round 1 opens when the group starts.** The bot gets one invoice per payer from the collector's
+   Lightning address and publishes them (encrypted) to the relay.
+4. Each member pays their invoice by scanning a QR code with **any Lightning wallet**, or with one tap
+   from a wallet connected to the app, or automatically through an optional budgeted connection.
+5. The bot confirms each payment by checking the proof of payment (the preimage) against the invoice.
+   When everyone has paid, the round closes.
+6. **Each later round opens when the previous one falls due**, and is due one period after that. If
+   everyone pays early, the next round is announced ("opens Nov 3, 9:00 AM") and nothing is issued
+   until then, so a ten-round cycle takes ten periods, not an afternoon. A round paid after its due
+   date opens the next one straight away.
+7. After the last round, the cycle is complete.
+
+**When someone doesn't pay.** A member who was given an invoice and still hasn't paid a week after the
+due date is recorded as having defaulted, and the round closes without them so the group can go on.
+The collector is short by that contribution: that is the real cost of a model with no pot to hold.
+Each member's record (paid on time, late, missed, rounds received, and whether they received a payout
+and then stopped paying) is shown on the group page. Nobody is blamed unless another member's payment
+got through that round, so an unreachable collector can't make everyone look like a defaulter.
+
+**Other features**
+
+- **Reminders** a day before a round is due and when it is overdue, in the language each member chose
+  (English, Pidgin, Yoruba, Hausa).
+- **Group assistant**: members ask "when is my turn?" or "who hasn't paid?" on the group page.
+- **Naira estimates** next to every amount. Amounts are fixed in sats; the naira value is an estimate.
+- **Auto-pay**: a member can give the coordinator a wallet connection that can only pay invoices, with a
+  spending budget enforced by their own wallet.
+
+**Privacy and trust**
+
+- Every group event (the group itself, joins, round state, receipts, questions, answers, reminders) is
+  encrypted with NIP-44. The relay sees that events exist, their type, the group id and who the members
+  are, but not names, amounts, Lightning addresses, invoices or preimages.
+- Each group has its own key, wrapped separately for each member and the coordinator. An invite link
+  carries only the group's name, amount and frequency, never the key.
+- The coordinator can see its group's contents, so you must trust whoever runs it with that, though not
+  with your money.
+- If an AI key is configured, members' questions and the group schedule are sent to Google Gemini. On
+  Google's free tier that data may be used to improve its products; the app tells members so. Keys,
+  invoices and wallet connections are never sent.
+- Everything the coordinator fetches from addresses members control goes through a guard that refuses
+  private, local and cloud-metadata addresses, redirects and oversized responses.
+
+## Repository layout
 
 ```
+packages/core   shared rules: event kinds, encryption, schedule, defaults and reputation, receipt checks
+packages/bot    the coordinator: round engine, relay access, assistant, payment checks, dev tools
+apps/web        the web app (Vite + React): sign-in, invite and join, schedule, pay, assistant
+deploy/         Caddy config and an example env file for hosting
+scripts/        open-channel.sh (open a Lightning channel from a local Alby Hub), nwc-check.mjs
+```
+
+## Run it yourself
+
+You need **Node.js 22 or newer** (developed on 23) and **Docker**. Chrome is only needed for the
+browser tests. Everything below runs on your own machine.
+
+### 1. Install
+
+```
+git clone <this repo> && cd <repo>
 npm install
-npm test
+npm test            # 146 unit tests; needs nothing else running
 ```
 
-MIT licensed.
+### 2. Start a relay
 
-## End-to-end test (local relay, mocked Lightning)
+A relay stores the events. A local one keeps your test data private:
 
 ```
 docker run -d --name ajo-relay -p 7777:8080 scsibug/nostr-rs-relay:latest
-npm run e2e -w @ajo/bot
 ```
 
-Runs a three-member cycle through a real relay. Invoices are signed locally and payment is
-simulated by publishing the preimage, so no Lightning node is needed.
-
-## Live test on Mutinynet (real Lightning, test sats)
-
-Needs two Alby Hubs on Mutinynet with a channel between them, and `.env` containing `NWC_PAYER`
-(pays) and `NWC_RECIPIENT` (receives). A local LNURL server stands in for the recipient's
-Lightning address, since Alby's hosted addresses are mainnet only.
+### 3. Make the coordinator's key
 
 ```
-npm run e2e:live -w @ajo/bot
+npm run keygen -w @ajo/bot
 ```
 
-## Browser test (real Chrome, real Lightning)
-
-With the relay running, `npm run dev -w @ajo/web` in one terminal, then:
-
-```
-npm run e2e:browser -w @ajo/web
-```
-
-A fresh test user creates a group, joins, pays over Lightning and the bot confirms the round.
-
-## Auto-pay
-
-A member can let the coordinator pay their contribution each round. They create a wallet
-connection that can only pay invoices, with a budget of about one contribution per period, and
-paste it into the group page. It is encrypted to the coordinator. The wallet enforces the budget.
+It prints `BOT_NSEC=…` (the secret key) and an `npub1…` (the public key). Put the secret in a file
+named `.env` at the repo root, with the relay address, and put the public key where the web app can
+find it. Keep `.env` private (it is git-ignored) and keep a backup: the bot's key is the identity of
+every group it runs, and a lost key can't be recovered.
 
 ```
-npm run e2e:autopay -w @ajo/bot        # relay + mocked Lightning
-npm run e2e:live-autopay -w @ajo/bot   # needs NWC_AUTOPAY (budgeted) and NWC_RECIPIENT in .env
+# .env
+BOT_NSEC=nsec1...
+RELAYS=ws://localhost:7777
 ```
 
-## Reminders and the assistant
-
-The coordinator sends each member a reminder a day before a round is due and another when it is
-overdue, in the language they chose when joining (English, Pidgin, Yoruba or Hausa). Members can
-also ask the assistant questions ("when is my turn?", "who hasn't paid?") on the group page.
-Reminders and answers are encrypted between the member and the coordinator.
-
-Without `GEMINI_API_KEY` the bot uses fixed templates. With it, Google Gemini writes the assistant's
-answers, and reminders in the languages listed in `AI_REMINDER_LANGUAGES` (default `en` only: Gemini's
-Yoruba and Pidgin reminders were unreliable in testing, so those use the fixed templates unless you opt
-in). Only group facts are sent (never keys, invoices or wallets), and any failure falls back to the
-templates.
-
-Models are tried in order: `gemini-3.1-flash-lite`, then `gemini-2.5-flash` (set `GEMINI_MODELS` to a
-comma-separated list to change it). Free-tier daily quotas are per model and small, so a model that
-runs out of quota, is overloaded or doesn't exist is skipped for a while (until Google's reported reset
-time for quota errors) and the next one is tried. Calls are spaced 5 seconds apart. When nothing is
-available, members get the template text, so they always get a message.
-
-**Privacy:** with the assistant on, members' questions and the group's schedule are sent to Google.
-Google's free tier may use them to improve its products, so the app tells members not to put anything
-private in a question. Reminders and answers are still encrypted on the relay.
-
 ```
-npm run e2e:assistant -w @ajo/bot   # relay, templates
-npm run e2e:live-ai -w @ajo/bot     # needs GEMINI_API_KEY, calls the real API
+# apps/web/.env.local   (new groups use this coordinator by default)
+VITE_COORDINATOR=npub1...
 ```
 
-The Pidgin, Yoruba and Hausa template wording has not been reviewed by native speakers.
-
-## Defaults and reputation
-
-If a member who was given an invoice still hasn't paid a week after the deadline, and at least one
-other member's payment got through (so the recipient was reachable), the coordinator records them as
-having defaulted and closes the round so the group can continue. The recipient is short by that
-contribution, which is the risk of a non-custodial circle. Each member's record (paid on time, late,
-missed, rounds received, and whether they received a payout and then stopped paying) is computed from
-the coordinator-signed round states and shown on the group page.
+### 4. Start the web app
 
 ```
-npm run e2e:reputation -w @ajo/web   # collect-and-leave through the real relay and UI (needs vite on :5173)
+npm run dev -w @ajo/web          # http://localhost:5173
 ```
 
-## Naira estimates
+Open it, click **Create a test key**, and you can already create a group, invite people and approve
+them. Use a second, private browser window as the second person. To see a whole cycle in one sitting,
+choose **"Every 10 minutes (testing only)"** when creating the group (development builds only).
 
-Amounts are always in sats; the app shows an approximate naira value next to them. The rate is the
-median of Yadio, blockchain.info and CoinGecko (public, no keys), cached for 10 minutes. If none
-respond, only sats are shown. Organizers can set a contribution in naira, which is converted to sats
-once at the time; the group is fixed in sats, so its naira value drifts with the market.
+### 5. Start the coordinator
 
-## Invite links and paying from any wallet
-
-An organizer can create a group "with an invite link": the group starts in a *forming* state (the
-coordinator ignores it), the organizer shares a link, and people open it, continue with one click
-(an account is created on their device), enter their Lightning address and ask to join. The
-organizer approves each request and then starts the group. The link carries only the group's name,
-amount and frequency, never its key; requests are encrypted to the organizer.
-
-Members pay with any Lightning wallet by scanning the QR code on the pay card. If the recipient's
-Lightning provider offers a verify link (LUD-21; Alby does, Wallet of Satoshi does not), the
-coordinator confirms the payment by itself. Otherwise the member pastes the payment proof or pays
-with a connected wallet. Everything the coordinator fetches from member-controlled addresses goes
-through a guard that refuses private and local addresses.
+It needs the organizer's `npub`, which is shown on the app's home page ("copy npub"):
 
 ```
-npm run e2e:invite -w @ajo/web         # two browser identities, a real payment from outside the app
-npm run e2e:live-verify -w @ajo/bot    # the bot confirming an outside payment through a verify link
+ORGANIZERS=npub1<organizer> AJO_ALLOW_LOCAL_LNURL=1 npm start -w @ajo/bot
 ```
 
-## Hosting it (one URL)
+`AJO_ALLOW_LOCAL_LNURL=1` is only for local development, because test Lightning addresses live on
+`localhost`; the bot's safety guard refuses local addresses otherwise. Restart the bot after changing
+code, and after creating a new organizer. You can list groups by hand instead with
+`GROUPS=<organizer npub>:<group id>`.
 
-Everything runs from one `docker compose` command: the relay, the coordinator bot and the web app
-behind Caddy, which gets and renews an HTTPS certificate for your domain by itself. The web app finds
-the relay on the same domain (`wss://your-domain/relay`), so nothing needs configuring for users.
+Without a Lightning setup you can follow the whole flow up to the point of paying. To pay, you need
+the next section.
+
+### 6. Lightning on a test network (to actually pay)
+
+Payments need two Lightning wallets with a channel between them. This uses two
+[Alby Hub](https://github.com/getAlby/hub) instances on **Mutinynet**, a test network with free coins.
+(Everything here is test money. Never use real funds.)
 
 ```
-npm run keygen -w @ajo/bot            # a key pair for the coordinator bot
+docker network create ajo-net
+
+docker run -d --name albyhub --network ajo-net -p 8080:8080 \
+  -v ~/.local/share/albyhub-ajo:/data -e WORK_DIR=/data \
+  -e NETWORK=signet \
+  -e LDK_ESPLORA_SERVER=https://mutinynet.com/api \
+  -e LDK_GOSSIP_SOURCE=https://rgs.mutinynet.com/snapshot/0 \
+  -e MEMPOOL_API=https://mutinynet.com/api \
+  ghcr.io/getalby/hub:latest
+
+docker run -d --name albyhub2 --network ajo-net -p 8081:8080 \
+  -v ~/.local/share/albyhub-ajo2:/data -e WORK_DIR=/data \
+  -e NETWORK=signet \
+  -e LDK_ESPLORA_SERVER=https://mutinynet.com/api \
+  -e LDK_GOSSIP_SOURCE=https://rgs.mutinynet.com/snapshot/0 \
+  -e MEMPOOL_API=https://mutinynet.com/api \
+  ghcr.io/getalby/hub:latest
+```
+
+- **Hub 1** (`http://localhost:8080`) is the payer. **Hub 2** (`http://localhost:8081`) is the receiver.
+- In each: choose **Maybe later** on the Alby account screen, then **Create Wallet with Custom Node**
+  and **LDK**, and set a password. Write down the recovery phrase.
+- **Fund hub 1:** copy its on-chain deposit address and get coins at <https://faucet.mutinynet.com>.
+- **Open a channel from hub 1 to hub 2.** Hub 2's node public key is on its **Node** page. The hub's
+  own channel page can stall on unannounced nodes, so use the script (it asks for hub 1's password,
+  which it never stores):
+
+  ```
+  HUB2_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "ajo-net").IPAddress}}' albyhub2)
+  scripts/open-channel.sh <hub2-pubkey>@$HUB2_IP:9735 100000
+  ```
+
+  Wait for the channel to show as active.
+- **Create wallet connections** (in each hub: Connections, then Add connection) and add them to `.env`:
+
+  ```
+  NWC_PAYER=nostr+walletconnect://...      # hub 1, Full Access: the "wallet" that pays in tests
+  NWC_RECIPIENT=nostr+walletconnect://...  # hub 2: makes the invoices for the stand-in address
+  NWC_AUTOPAY=nostr+walletconnect://...    # optional, hub 1: pay-invoice only, budget 1500 sats/week
+  ```
+
+  Check them with `node --env-file=.env scripts/nwc-check.mjs`: it prints which node and balance each
+  connection controls, without showing the URLs. `npm run e2e:live -w @ajo/bot` is the simplest proof
+  that the whole setup works (it pays 1000 test sats).
+- **Start the Lightning address stand-in.** Real Lightning addresses on a test network are not
+  available, so this small server makes `anything@localhost:3456` pay into hub 2:
+
+  ```
+  npm run lnurl -w @ajo/bot
+  ```
+
+Now use `name@localhost:3456` as the Lightning address when joining. To pay as "any wallet", copy the
+invoice from the pay card and send it from hub 1's **Send** screen. Within about a minute the bot
+confirms it by itself.
+
+## Configuration reference
+
+Set in `.env` at the repo root (read by the bot and the live tests), or in the environment.
+
+| Variable | Used by | Meaning |
+|---|---|---|
+| `BOT_NSEC` | bot | The coordinator's secret key. Required. |
+| `RELAYS` | bot | Comma-separated relay addresses. Required. |
+| `ORGANIZERS` | bot | Organizer npubs whose groups this bot runs. |
+| `GROUPS` | bot | Alternatively, `<organizer npub>:<group id>`, comma-separated. |
+| `AJO_ALLOW_LOCAL_LNURL` | bot | `1` allows localhost Lightning addresses. Development only. |
+| `GEMINI_API_KEY` | bot | Turns on Gemini for the assistant. Free key: <https://aistudio.google.com/apikey>. |
+| `GEMINI_MODELS` | bot | Comma-separated model list, tried in order. Default `gemini-3.1-flash-lite,gemini-2.5-flash`. |
+| `AI_REMINDER_LANGUAGES` | bot | Languages in which Gemini may write reminders. Default `en`; others use fixed templates. |
+| `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |
+| `LNURL_PORT` | stand-in | Port of the Lightning address stand-in. Default 3456. |
+| `VITE_COORDINATOR` | web (build time) | Default coordinator npub for new groups. |
+| `VITE_RELAY` | web (build time) | Relay address. By default the dev server uses `ws://localhost:7777` and a hosted build uses `/relay` on its own domain. |
+
+Without `GEMINI_API_KEY`, reminders and answers come from fixed templates. Gemini's free tier has a
+small daily quota per model, so the bot tries several models, skips one that is out of quota until
+Google says it resets, spaces its calls, and falls back to templates when nothing is available.
+
+## Tests
+
+`npm test` runs the unit tests of all three packages and needs nothing else. The end-to-end tests
+drive the real system and are run per package with `npm run <name> -w <package>`:
+
+| Command | Needs | What it proves | Spends |
+|---|---|---|---|
+| `e2e -w @ajo/bot` | relay | a whole cycle through a real relay, following the calendar, with nothing readable on the relay | none |
+| `e2e:assistant -w @ajo/bot` | relay | reminders sent once, in the member's language, questions answered with a cap, all encrypted | none |
+| `e2e:autopay -w @ajo/bot` | relay | auto-pay with an encrypted grant and revocation (mocked Lightning) | none |
+| `e2e:stale-round -w @ajo/bot` | relay | a leftover round state can't stop a started group | none |
+| `e2e:reputation -w @ajo/web` | relay, web dev server, Chrome | a member who collects and stops paying is recorded as defaulted, shown in the UI | none |
+| `e2e:live -w @ajo/bot` | relay, `NWC_PAYER`, `NWC_RECIPIENT` | a real Lightning payment verified by the bot | 1000 sats |
+| `e2e:live-verify -w @ajo/bot` | same | a payment from outside the app, confirmed by the bot with no receipt | 1000 sats |
+| `e2e:live-autopay -w @ajo/bot` | relay, `NWC_AUTOPAY`, `NWC_RECIPIENT` | the bot pays from a budgeted connection and the wallet refuses an overspend | 1000 sats |
+| `e2e:live-ai -w @ajo/bot` | `GEMINI_API_KEY` | what Gemini writes in all four languages | none |
+| `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
+| `e2e:invite -w @ajo/web` | same | two browser identities: invite link, approval, start, payment from outside the app, confirmation | 1000 sats |
+
+The browser tests expect Chrome at `/usr/bin/google-chrome` and the web dev server on port 5173. The
+live tests spend small amounts of test coins from `NWC_PAYER` each run, and `e2e:live-autopay` uses
+most of its budgeted connection's weekly allowance, so run it sparingly.
+
+## Hosting it (one address)
+
+`docker compose` runs the relay, the coordinator and the web app together behind
+[Caddy](https://caddyserver.com), which gets and renews an HTTPS certificate for your domain by itself.
+The web app finds the relay on the same domain (`wss://your-domain/relay`), so users configure nothing.
+
+```
+npm run keygen -w @ajo/bot            # a key pair for the coordinator
 cp deploy/.env.example deploy/.env    # fill in SITE_ADDRESS, BOT_NSEC, COORDINATOR_NPUB, ORGANIZERS
 docker compose --env-file deploy/.env up -d --build
 ```
 
 Point your domain's DNS at the server and open ports 80 and 443. Use `SITE_ADDRESS=:80` for a plain
-http trial. If the build stalls downloading packages, build the images one at a time:
+http trial on a local port (set `HTTP_PORT` to avoid clashing with something else). If the build stalls
+downloading packages, build one image at a time:
 `COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file deploy/.env build`.
 
-Keep `deploy/.env` private: it holds the bot's secret key. Back it up somewhere safe, because the
-bot's key is the identity of every group it runs, and a lost key cannot be recovered.
+Keep `deploy/.env` private and backed up; it holds the coordinator's secret key. On a real network,
+Lightning addresses are real providers' addresses, so do not set `AJO_ALLOW_LOCAL_LNURL`.
 
-Tested locally on plain http (full invite-and-pay flow against the hosted build). Not tested: a real
-domain with HTTPS, or a bot restart under load.
+Tested locally on plain http with the full invite-and-pay flow. **Not tested:** a real domain with
+HTTPS, or the bot restarting under load.
 
-## Rounds follow the calendar
+## Limits and what's not done
 
-Each round has a time it *opens* and a time it is *due*. Round 1 opens when the organizer starts the
-group; every later round opens when the previous one falls due, and is due one period after that.
-Members can pay any time in a round's window, and the collector receives each payment as it comes in
-(there is no pot to hold). If everyone pays round 1 on day one, round 2 is still announced ("opens
-Nov 3, 9:00 AM") and no invoices are issued until then, so a ten-round cycle takes ten periods, not an
-afternoon. If a round is paid after its due date, the next one opens straight away. Due times are
-9:00 AM in the organizer's timezone, shown with the time and timezone. Groups created before this
-change have no start time and keep the old behaviour (each round opens as soon as the last closes).
+**Things to know before trusting it**
 
-For trying a whole cycle in one sitting, the development build offers a 10-minute period ("Every 10
-minutes (testing only)"); it is not offered in a built, hosted app.
+- **The collector bears the risk of a default.** There is no pot and no collateral. The default record
+  is a deterrent, not compensation. Collateral is the natural next step.
+- **Verify links vary by provider.** The bot can confirm payments from any wallet only when the
+  collector's Lightning provider offers an LNURL "verify" link. Alby does; Wallet of Satoshi does not,
+  and others are unchecked. Without one, the member pastes the payment proof or pays with a connected wallet.
+- **Accounts live in the browser.** The one-click account is a key stored on the device. Settings can
+  show it for a backup, but nothing prompts people to save it, so losing the browser loses the account.
+- **The coordinator is trusted with group data**, not funds. Whoever runs it can read the group.
+- **AI text.** Gemini's Yoruba and Pidgin reminders were unreliable in testing, so Gemini writes
+  reminders in English only by default. The Pidgin, Yoruba and Hausa template wording has not been
+  reviewed by native speakers and should be before any real use.
+- **Reminders only appear inside the app.** Nothing reaches a member outside it (no SMS, WhatsApp or
+  standard Nostr DMs yet).
+
+**Not built**
+
+- Removing a member before a group starts.
+- A reputation record that follows a person across groups (opt-in public attestations), and payout
+  order chosen by trust.
+- Collateral, or any other way to compensate a collector after a default.
+- Real PWA features (icons, install prompt, offline shell). There is a manifest only.
+- Signing and encryption through a real Nostr browser extension were not tried; only local keys were.
+- A group of three or more members was exercised through the relay tests and the reputation test, but
+  the live-payment tests used two members.
+
+## License
+
+MIT. See `LICENSE`.
