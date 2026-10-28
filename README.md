@@ -36,6 +36,9 @@ group, round and payer) so the coordinator can tell who paid; it reads the recip
 blockchain (Esplora) and closes the round by itself, with no receipt, invoice or provider support needed.
 Trade-offs: each payment costs a network fee and takes a block or more to confirm, so it suits larger, less
 frequent rounds; Lightning stays better for small, frequent ones. Auto-pay is Lightning-only.
+The member picks Slow, Normal or Fast (with the fee shown), a payment stuck waiting for a block can be
+replaced with a higher-fee one (**Speed up**, using replace-by-fee), and each group is given its own payout
+address from the wallet so groups can't be linked on the blockchain.
 The **Lightning** tab does not hold funds: it is an interface to the user's own Lightning wallet (for
 example Alby Hub), which is where the Lightning node lives. An in-browser Lightning node is not practical
 today, so the app pairs the two: on-chain for keeping, Lightning for paying the circle.
@@ -291,6 +294,7 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
 | `e2e:bitcoin -w @ajo/web` | web dev server, Chrome, internet (Mutinynet); `ONCHAIN_TEST_MNEMONIC` for the funded half | the on-chain wallet: create, verify backup, lock/unlock, restore on a second device; with funds, real balance and a real signed payment confirmed in a block | network fee only |
 | `e2e:onchain-group -w @ajo/web` | relay, web dev server, Chrome, internet; funded `ONCHAIN_TEST_MNEMONIC` for the payment half | a group paid in Bitcoin: invite, join with the wallet's address, pay from the group page, the coordinator closes the round from the blockchain | ~1,200 test sats |
+| `e2e:bump -w @ajo/web` | internet; funded `ONCHAIN_TEST_MNEMONIC` (1,500+ sats) | a payment sent at the lowest fee is replaced by a faster one on the real signet, and only the replacement is mined | ~1,000 test sats |
 | `e2e:wallet -w @ajo/web` | web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | the Wallet page: connect, balance, receive from another wallet, send to an invoice and to a Lightning address, budget meter, over-budget payment refused (about 1400 sats) | ~1400 sats |
 | `e2e:invite -w @ajo/web` | same | two browser identities: invite link, approval, start, payment from outside the app, confirmation | 1000 sats |
 

@@ -13,7 +13,7 @@ if (!mnemonic) throw new Error('set ONCHAIN_TEST_MNEMONIC (run `npm run e2e:bitc
 const relay = process.env.RELAY ?? 'ws://localhost:7777';
 const app = process.env.APP ?? 'http://localhost:5173';
 const shots = process.env.SHOTS ?? '.';
-const AMOUNT = 1000;
+const AMOUNT = 500;
 const check = (ok: boolean, msg: string) => { if (!ok) throw new Error(`FAILED: ${msg}`); console.log('ok  ', msg); };
 
 const net = chosenNetwork({});
@@ -129,12 +129,12 @@ try {
     await guest.text('Network fee');
     await guest.page.screenshot({ path: `${shots}/19-onchain-review.png` });
     await guest.click('Sign and send');
-    await guest.text('Your payment is on the blockchain');
+    await guest.text('Waiting for the network to put your payment in a block');
     check(true, 'the member signed and broadcast a tagged payment from the group page');
 
     // reloading must not offer a second payment
     await guest.page.reload();
-    await guest.text('Your payment is on the blockchain');
+    await guest.page.waitForFunction(() => /Waiting for the network|Confirmed \(/.test(document.body.innerText), { timeout: 60000 });
     check(!(await guest.page.evaluate(() => document.body.innerText.includes('from my wallet'))), 'after a reload the page recognises the payment and does not offer to pay again');
 
     // the coordinator closes the round once the blockchain confirms it (~30 s on signet)

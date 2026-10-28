@@ -9,6 +9,8 @@ import { SendError, assertSaneFee, buildTransaction, planSend, type Built, type 
 import { useUnlocked, setUnlocked } from '../lib/onchain/session';
 import { loadVault, openMnemonic } from '../lib/onchain/vault';
 import { formatSats, shortKey } from '../lib/format';
+import { SPEEDS, waitText, type SpeedKey } from '../lib/onchain/fees';
+import { SpeedUp } from './SpeedUp';
 
 /**
  * Pays this round's contribution from the app's own Bitcoin wallet. The payment carries a tag that says
@@ -27,6 +29,9 @@ export function PayOnChain({ group, state, recipientAddress, me, naira, onSent }
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [pw, setPw] = useState('');
+  const [speed, setSpeed] = useState<SpeedKey>('normal');
+  const [estimates, setEstimates] = useState<Record<string, number>>();
+  useEffect(() => { api?.feeEstimates().then(setEstimates).catch(() => setEstimates({})); }, [api]);
 
   // Has this member's payment already been made (even if still unconfirmed)? Never offer to pay twice.
   const look = useCallback(async () => {
@@ -55,6 +60,7 @@ export function PayOnChain({ group, state, recipientAddress, me, naira, onSent }
       <>
         <p><span className="dots" aria-hidden="true" />Sent. Waiting for the network to put your payment in a block…</p>
         <p className="muted small">This takes about {net.testCoins ? '30 seconds' : '10 minutes or more'}. You can leave this page; the coordinator marks the round paid after 1 confirmation. {link}</p>
+        {account && api && <><p className="muted small">Taking too long? You can pay a higher fee to get it mined sooner.</p><SpeedUp txid={mine.txid} account={account} api={api} net={net} onDone={() => void look()} /></>}
       </>
     ) : (
       <>
@@ -92,7 +98,8 @@ export function PayOnChain({ group, state, recipientAddress, me, naira, onSent }
       const to = checkAddress(recipientAddress, net);
       const fresh = snap ?? (await scanWallet(account, api));
       setSnap(fresh);
-      const rate = pickFeeRate(await api.feeEstimates().catch(() => ({})), 3);
+      const target = SPEEDS.find((x) => x.key === speed)!.target;
+      const rate = pickFeeRate(estimates ?? (await api.feeEstimates().catch(() => ({}))), target);
       const plan = planSend({ utxos: fresh.utxos, amountSats: group.amountSats, feeRate: rate, tagged: true });
       assertSaneFee(plan);
       setReview({ plan, built: buildTransaction(plan, to, account.address(1, fresh.nextChange), account, net, tag) });
@@ -139,6 +146,14 @@ export function PayOnChain({ group, state, recipientAddress, me, naira, onSent }
   return (
     <>
       <p className="muted small">Your wallet holds {snap ? formatSats(snap.confirmedSats) : '…'}.{net.testCoins && net.faucet ? <> Need test coins? <a href={net.faucet} target="_blank" rel="noreferrer">{net.faucet.replace('https://', '')}</a>.</> : null}</p>
+      <fieldset className="mode">
+        <legend>How fast</legend>
+        {SPEEDS.map((x) => {
+          let cost = '';
+          try { if (snap && estimates) cost = `fee ${planSend({ utxos: snap.utxos, amountSats: group.amountSats, feeRate: pickFeeRate(estimates, x.target), tagged: true }).feeSats.toLocaleString('en')} sats, `; } catch { /* not enough coins; the button says so */ }
+          return <label key={x.key} className="radio"><input type="radio" name="speed" checked={speed === x.key} onChange={() => setSpeed(x.key)} /> {x.label} <span className="muted small">({cost}{waitText(x.target, net.testCoins)})</span></label>;
+        })}
+      </fieldset>
       {error && <p className="error">{error}</p>}
       <button aria-busy={busy} disabled={busy || !snap} onClick={prepare}>{busy ? 'Preparing…' : `Pay ${formatSats(group.amountSats)} from my wallet`}</button>
     </>

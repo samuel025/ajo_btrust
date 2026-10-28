@@ -12,6 +12,10 @@ export interface Snapshot {
   nextReceive: number;
   nextChange: number;
   tip: number;
+  /** The wallet's used addresses and where they come from, to recognise its own coins in a payment. */
+  owned: Record<string, { chain: Chain; index: number }>;
+  /** The transactions as the block explorer reports them, by id. */
+  raw: Record<string, EsploraTx>;
 }
 
 /** How many unused addresses in a row mean "there is nothing further along". Wallets agree on this rule. */
@@ -69,5 +73,7 @@ export async function scanWallet(account: Account, api: Esplora, gap = GAP_LIMIT
     nextReceive: external.next,
     nextChange: change.next,
     tip,
+    owned: Object.fromEntries(owned.map((o) => [o.address, { chain: o.chain, index: o.index }])),
+    raw: Object.fromEntries(byId),
   };
 }

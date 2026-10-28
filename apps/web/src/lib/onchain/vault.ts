@@ -12,6 +12,8 @@ export interface VaultRecord {
   data: string;
   /** The wallet's first receiving address. Not a secret; kept so a group can be joined without unlocking. */
   address?: string;
+  /** The first few receiving addresses, so each group can be given its own without unlocking. Not secrets. */
+  addresses?: string[];
 }
 
 const ITERATIONS = 600_000;
@@ -63,5 +65,5 @@ export function vaultFromFile(text: string): VaultRecord {
   try { data = JSON.parse(text); } catch { throw new Error("That isn't a wallet backup file."); }
   const ok = data && data.v === 1 && typeof data.network === 'string' && ['salt', 'iv', 'data'].every((k) => typeof (data as Record<string, unknown>)[k] === 'string') && Number.isInteger(data.iterations) && data.iterations! > 0;
   if (!ok) throw new Error("That isn't a wallet backup file.");
-  return { v: 1, network: data.network!, salt: data.salt!, iv: data.iv!, iterations: data.iterations!, data: data.data!, ...(typeof data.address === 'string' ? { address: data.address } : {}) };
+  return { v: 1, network: data.network!, salt: data.salt!, iv: data.iv!, iterations: data.iterations!, data: data.data!, ...(typeof data.address === 'string' ? { address: data.address } : {}), ...(Array.isArray(data.addresses) && data.addresses.every((a) => typeof a === 'string') ? { addresses: data.addresses } : {}) };
 }

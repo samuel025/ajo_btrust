@@ -62,7 +62,7 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
         <form className="card" onSubmit={ask}>
           <h2>Ask to join</h2>
           <p className="muted">Members pay you at {invite.rail === 'onchain' ? 'this Bitcoin address' : 'your Lightning address'} when it's your turn to receive. Only the organizer sees this.</p>
-          <PayoutField rail={invite.rail} value={address} onChange={setAddress} />
+          <PayoutField rail={invite.rail} value={address} onChange={setAddress} groupId={invite.id} />
           <label>Language for reminders
             <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
               {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}

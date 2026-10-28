@@ -7,7 +7,7 @@ import { checksPass, isValidMnemonic, newMnemonic, normalizeMnemonic, pickChecks
 import { openMnemonic, sealMnemonic } from '../src/lib/onchain/vault';
 import { Esplora, describeBroadcastError, pickFeeRate, type EsploraTx } from '../src/lib/onchain/esplora';
 import { GAP_LIMIT, scanWallet } from '../src/lib/onchain/scan';
-import { DUST_SATS, SendError, assertSaneFee, buildTransaction, planSend, vsizeOf } from '../src/lib/onchain/send';
+import { DUST_SATS, SendError, assertSaneFee, buildBump, buildTransaction, planBump, planSend, vsizeOf } from '../src/lib/onchain/send';
 import type { WalletUtxo } from '../src/lib/onchain/scan';
 
 const hexToBytes = (hex: string) => Uint8Array.from(Buffer.from(hex, 'hex'));
@@ -386,5 +386,99 @@ describe('backup files', () => {
     expect(() => vaultFromFile('not json')).toThrow(/backup/);
     expect(() => vaultFromFile(JSON.stringify({ v: 1, network: 'signet' }))).toThrow(/backup/);
     expect(() => vaultFromFile(JSON.stringify({ ...record, iterations: 0 }))).toThrow(/backup/);
+  });
+});
+
+describe('speeding up a stuck payment', () => {
+  const account = new Account(seedFromMnemonic(PHRASE), signet);
+  const tag = 'a1b2c3d4e5f60718';
+  const to = account.address(0, 7);
+  const funding = (value: number, vout = 0, txid = 'cd'.repeat(32)) => ({ txid, vout, value, chain: 0 as const, index: 0, confirmed: true, address: account.address(0, 0) });
+  const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+
+  /** What the block explorer would say about a transaction this wallet just sent. */
+  const explorerView = (hex: string, utxos: { txid: string; vout: number; value: number; address: string }[]) => {
+    const t = btc.Transaction.fromRaw(Uint8Array.from(hex.match(/../g)!.map((h) => parseInt(h, 16))), { allowUnknownOutputs: true });
+    const vin = Array.from({ length: t.inputsLength }, (_, i) => {
+      const input = t.getInput(i);
+      const u = utxos.find((c) => c.txid === toHex(input.txid!) && c.vout === input.index)!;
+      return { txid: u.txid, vout: u.vout, prevout: { scriptpubkey_address: u.address, value: u.value } };
+    });
+    const vout = Array.from({ length: t.outputsLength }, (_, i) => {
+      const o = t.getOutput(i);
+      const script = toHex(o.script!);
+      let address: string | undefined;
+      try { address = btc.Address(signet.params).encode(btc.OutScript.decode(o.script!)); } catch { /* an OP_RETURN has no address */ }
+      return { scriptpubkey: script, scriptpubkey_address: address, value: Number(o.amount) };
+    });
+    return { txid: t.id, vin, vout, status: { confirmed: false } } as EsploraTx;
+  };
+  const owned = Object.fromEntries([0, 7].map((i) => [account.address(0, i), { chain: 0 as const, index: i }]).concat([[account.address(1, 0), { chain: 1 as const, index: 0 }]]));
+  const changeTo = { chain: 1 as const, index: 0, script: toHex(account.payment(1, 0).script) };
+
+  it('payments signal that they can be replaced', () => {
+    const coin = funding(100_000);
+    const plan = planSend({ utxos: [coin], amountSats: 20_000, feeRate: 1, tagged: true });
+    const built = buildTransaction(plan, to, account.address(1, 0), account, signet, tag);
+    const t = btc.Transaction.fromRaw(Uint8Array.from(built.hex.match(/../g)!.map((h) => parseInt(h, 16))), { allowUnknownOutputs: true });
+    expect(t.getInput(0).sequence).toBe(0xfffffffd);
+  });
+
+  it('replaces it with a higher fee taken from the change, keeping the payment and its tag', () => {
+    const coin = funding(100_000);
+    const plan = planSend({ utxos: [coin], amountSats: 20_000, feeRate: 1, tagged: true });
+    const built = buildTransaction(plan, to, account.address(1, 0), account, signet, tag);
+    const original = explorerView(built.hex, [coin]);
+    const bump = planBump({ original, owned, spare: [], feeRate: 8, changeTo });
+    expect(bump.feeSats).toBeGreaterThan(plan.feeSats);
+    expect(bump.feeSats).toBeGreaterThanOrEqual(plan.feeSats + bump.vsize); // the network's minimum increase
+    expect(bump.feeSats).toBeGreaterThanOrEqual(Math.ceil(bump.vsize * 8));
+    const rebuilt = buildBump(bump, account, signet);
+    const t = btc.Transaction.fromRaw(Uint8Array.from(rebuilt.hex.match(/../g)!.map((h) => parseInt(h, 16))), { allowUnknownOutputs: true });
+    const outs = Array.from({ length: t.outputsLength }, (_, i) => ({ script: toHex(t.getOutput(i).script!), value: Number(t.getOutput(i).amount) }));
+    expect(outs.some((o) => o.script === `6a08${tag}` && o.value === 0)).toBe(true);
+    expect(outs.some((o) => o.value === 20_000)).toBe(true);
+    expect(t.getInput(0).txid && toHex(t.getInput(0).txid!)).toBe(coin.txid); // spends the same coin, so it replaces the stuck one
+    expect(t.getInput(0).sequence).toBe(0xfffffffd);
+    expect(rebuilt.txid).not.toBe(built.txid);
+    expect(100_000 - outs.reduce((n, o) => n + o.value, 0)).toBe(bump.feeSats);
+  });
+
+  it('adds another coin when the change is too small to cover a higher fee', () => {
+    const small = funding(20_400); // almost nothing left over after paying 20,000
+    const plan = planSend({ utxos: [small], amountSats: 20_000, feeRate: 1, tagged: true });
+    const built = buildTransaction(plan, to, account.address(1, 0), account, signet, tag);
+    const original = explorerView(built.hex, [small]);
+    expect(() => planBump({ original, owned, spare: [], feeRate: 20, changeTo })).toThrow(/not enough confirmed/);
+    const spare = funding(50_000, 3, 'ef'.repeat(32));
+    const bump = planBump({ original, owned, spare: [spare], feeRate: 20, changeTo });
+    expect(bump.inputs).toHaveLength(2);
+    const rebuilt = buildBump(bump, account, signet);
+    expect(rebuilt.feeSats).toBe(bump.feeSats);
+  });
+
+  it('refuses a payment that is already confirmed or is not this wallet\'s', () => {
+    const coin = funding(100_000);
+    const built = buildTransaction(planSend({ utxos: [coin], amountSats: 20_000, feeRate: 1 }), to, account.address(1, 0), account, signet);
+    const view = explorerView(built.hex, [coin]);
+    expect(() => planBump({ original: { ...view, status: { confirmed: true, block_height: 5 } }, owned, spare: [], feeRate: 8, changeTo })).toThrow(/already confirmed/);
+    expect(() => planBump({ original: view, owned: {}, spare: [], feeRate: 8, changeTo })).toThrow(/not made from this wallet/);
+  });
+});
+
+describe('a fresh payout address for each group', () => {
+  it('gives each group its own, keeps a group\'s choice, and shares only once they run out', async () => {
+    const { choosePayoutAddress } = await import('../src/lib/onchain/payout');
+    const addresses = ['a0', 'a1', 'a2'];
+    const one = choosePayoutAddress('g1', addresses, {});
+    expect(one.address).toBe('a0');
+    const two = choosePayoutAddress('g2', addresses, one.taken);
+    expect(two.address).toBe('a1');
+    expect(choosePayoutAddress('g1', addresses, two.taken).address).toBe('a0'); // the same group gets the same address
+    const three = choosePayoutAddress('g3', addresses, two.taken);
+    const four = choosePayoutAddress('g4', addresses, three.taken);
+    expect([one.address, two.address, three.address]).toEqual(['a0', 'a1', 'a2']);
+    expect(four.address).toBe('a0'); // out of fresh ones: the oldest is shared again, and nothing is recorded for g4
+    expect(four.taken).toEqual(three.taken);
   });
 });

@@ -152,7 +152,7 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
     <form className="card" onSubmit={join}>
       <h2>Join this group</h2>
       <p className="muted">By joining you agree to pay {withNaira(group.amountSats, ctx.rate)} each round. Members pay you at this {group.rail === 'onchain' ? 'Bitcoin' : 'Lightning'} address when it's your turn.</p>
-      <PayoutField rail={group.rail} value={address} onChange={setAddress} />
+      <PayoutField rail={group.rail} value={address} onChange={setAddress} groupId={group.id} />
       <label>Language for reminders
         <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
           {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}

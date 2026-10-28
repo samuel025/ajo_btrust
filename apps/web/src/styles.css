@@ -71,8 +71,8 @@ label.radio input { width: auto; margin: 0 6px 0 0; }
 .linkbox { margin-bottom: 8px; }
 
 .balance { font-size: 2.3rem; font-weight: 800; line-height: 1.1; letter-spacing: -.02em; margin: 2px 0; }
-.tabs { display: flex; gap: 6px; margin: 18px 0 0; }
-.tab { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; font-weight: 600; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 0; }
+.tab { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-weight: 600; }
 .tab.on { background: var(--surface); color: var(--text); border-color: var(--accent); }
 .budget { margin-top: 12px; }
 .meter { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 4px; }
@@ -103,3 +103,10 @@ button[aria-busy="true"]::before { content: ''; display: inline-block; width: .8
 
 .filebtn { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .dots { display: inline-block; width: .8em; height: .8em; margin-right: .5em; vertical-align: -.1em; border: 2px solid var(--muted); border-right-color: transparent; border-radius: 50%; animation: ajo-spin .9s linear infinite; }
+
+/* Phones: long addresses wrap instead of pushing the page wide, and amounts stay on one line. */
+.members li { flex-wrap: wrap; }
+.members li > span:first-child, .requests li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.txs .in, .txs .out { white-space: nowrap; }
+.txs li > div:first-child { min-width: 0; }
+@media (max-width: 480px) { .members li > .right { flex-basis: 100%; } }

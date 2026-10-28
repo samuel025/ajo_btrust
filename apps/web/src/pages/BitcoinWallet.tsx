@@ -7,6 +7,9 @@ import { Account, checkAddress } from '../lib/onchain/keys';
 import { walletNetwork } from '../lib/onchain/config';
 import type { NetworkConfig } from '../lib/onchain/network';
 import { setUnlocked, useUnlocked } from '../lib/onchain/session';
+import { PAYOUT_ADDRESSES } from '../lib/onchain/payout';
+import { SPEEDS, waitText, type SpeedKey } from '../lib/onchain/fees';
+import { SpeedUp } from '../components/SpeedUp';
 import { scanWallet, type Snapshot } from '../lib/onchain/scan';
 import { checksPass, isValidMnemonic, newMnemonic, normalizeMnemonic, pickChecks, seedFromMnemonic } from '../lib/onchain/seed';
 import { SendError, assertSaneFee, buildTransaction, planSend, type Built, type Plan } from '../lib/onchain/send';
@@ -59,7 +62,7 @@ function Setup({ net, onDone, onRestored }: { net: NetworkConfig; onDone: (recor
     setBusy(true);
     try {
       const acct = new Account(seedFromMnemonic(words), net);
-      const record = { ...(await sealMnemonic(words, pw, net.name)), address: acct.address(0, 0) };
+      const record = { ...(await sealMnemonic(words, pw, net.name)), address: acct.address(0, 0), addresses: Array.from({ length: PAYOUT_ADDRESSES }, (_, i) => acct.address(0, i)) };
       if (!saveVault(record)) throw new Error("This browser won't let the wallet be saved. Check that site data isn't blocked.");
       onDone(record, acct);
     } catch (e) {
@@ -218,7 +221,7 @@ function Unlocked({ ctx, net, account, onLock, onRemoved }: { ctx: Ctx; net: Net
 
       {tab === 'receive' && <ReceiveOnChain net={net} account={account} snap={snap} />}
       {tab === 'send' && <SendOnChain net={net} account={account} api={api} snap={snap} naira={naira} onSent={refresh} />}
-      {tab === 'history' && <HistoryOnChain net={net} snap={snap} naira={naira} />}
+      {tab === 'history' && <HistoryOnChain net={net} account={account} api={api} snap={snap} naira={naira} onChanged={refresh} />}
       {tab === 'backup' && <Backup net={net} onRemoved={onRemoved} />}
     </>
   );
@@ -246,13 +249,12 @@ function ReceiveOnChain({ net, account, snap }: { net: NetworkConfig; account: A
   );
 }
 
-const SPEEDS = [{ key: 'slow', label: 'Slow', target: 12 }, { key: 'normal', label: 'Normal', target: 3 }, { key: 'fast', label: 'Fast', target: 1 }] as const;
 
 function SendOnChain({ net, account, api, snap, naira, onSent }: { net: NetworkConfig; account: Account; api: Esplora; snap?: Snapshot; naira: (s: number) => string; onSent: () => void }) {
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
   const [max, setMax] = useState(false);
-  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]['key']>('normal');
+  const [speed, setSpeed] = useState<SpeedKey>('normal');
   const [estimates, setEstimates] = useState<Record<string, number>>();
   const [review, setReview] = useState<{ plan: Plan; built: Built; to: string }>();
   const [sent, setSent] = useState<string>();
@@ -331,7 +333,7 @@ function SendOnChain({ net, account, api, snap, naira, onSent }: { net: NetworkC
       <fieldset className="mode">
         <legend>How fast</legend>
         {SPEEDS.map((s) => (
-          <label key={s.key} className="radio"><input type="radio" name="speed" checked={speed === s.key} onChange={() => setSpeed(s.key)} /> {s.label} <span className="muted small">({rateFor(s.target)} sat/vB, about {Math.round(s.target * (net.name === 'signet' ? 0.5 : 10))} min)</span></label>
+          <label key={s.key} className="radio"><input type="radio" name="speed" checked={speed === s.key} onChange={() => setSpeed(s.key)} /> {s.label} <span className="muted small">({rateFor(s.target)} sat/vB, {waitText(s.target, net.testCoins)})</span></label>
         ))}
       </fieldset>
       {error && <p className="error">{error}</p>}
@@ -340,7 +342,7 @@ function SendOnChain({ net, account, api, snap, naira, onSent }: { net: NetworkC
   );
 }
 
-function HistoryOnChain({ net, snap, naira }: { net: NetworkConfig; snap?: Snapshot; naira: (s: number) => string }) {
+function HistoryOnChain({ net, account, api, snap, naira, onChanged }: { net: NetworkConfig; account: Account; api: Esplora; snap?: Snapshot; naira: (s: number) => string; onChanged: () => void }) {
   if (!snap) return <section className="card"><p className="muted">Looking at the blockchain…</p></section>;
   if (!snap.txs.length) return <section className="card"><p className="muted">No payments yet.</p></section>;
   return (
@@ -358,6 +360,7 @@ function HistoryOnChain({ net, snap, naira }: { net: NetworkConfig; snap?: Snaps
                   {t.confirmed ? ` · ${confirmations} confirmation${confirmations === 1 ? '' : 's'}` : ''} ·{' '}
                   <a href={`${net.explorer}/tx/${t.txid}`} target="_blank" rel="noreferrer">view</a>
                 </div>
+                {!t.confirmed && t.netSats < 0 && <SpeedUp txid={t.txid} account={account} api={api} net={net} onDone={onChanged} />}
               </div>
               <div className={t.netSats >= 0 ? 'in' : 'out'}>{t.netSats >= 0 ? '+' : '−'}{Math.abs(t.netSats).toLocaleString('en')} sats{naira(Math.abs(t.netSats))}</div>
             </li>

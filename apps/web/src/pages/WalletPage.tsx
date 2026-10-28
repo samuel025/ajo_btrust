@@ -15,9 +15,10 @@ export function WalletPage({ ctx }: { ctx: Ctx }) {
     <>
       <h1>Wallet</h1>
       <div className="tabs" role="tablist" aria-label="Wallet type">
-        <button role="tab" aria-selected={kind === 'bitcoin'} className={kind === 'bitcoin' ? 'tab on' : 'tab'} onClick={() => setKind('bitcoin')}>Bitcoin (your keys)</button>
-        <button role="tab" aria-selected={kind === 'lightning'} className={kind === 'lightning' ? 'tab on' : 'tab'} onClick={() => setKind('lightning')}>Lightning (connect a wallet)</button>
+        <button role="tab" aria-selected={kind === 'bitcoin'} className={kind === 'bitcoin' ? 'tab on' : 'tab'} onClick={() => setKind('bitcoin')}>Bitcoin</button>
+        <button role="tab" aria-selected={kind === 'lightning'} className={kind === 'lightning' ? 'tab on' : 'tab'} onClick={() => setKind('lightning')}>Lightning</button>
       </div>
+      <p className="muted small">{kind === 'bitcoin' ? 'A wallet with its own keys, kept in this browser.' : 'Connect a Lightning wallet you already have.'}</p>
       {kind === 'bitcoin' ? <BitcoinWallet ctx={ctx} /> : <LightningWallet ctx={ctx} />}
     </>
   );
