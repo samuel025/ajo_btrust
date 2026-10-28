@@ -29,8 +29,9 @@ try {
     el.click();
   }, label);
   const connect = async (url: string) => {
+    await click('I have a connection code to paste instead'); // the pasted code lives in a collapsed section
     await page.type('input[type="password"]', url);
-    await click('Connect');
+    await page.evaluate(() => (document.querySelector('details form button') as HTMLElement).click());
     await page.waitForSelector('.balance', { timeout: 45000 });
   };
 
@@ -41,6 +42,7 @@ try {
   await page.reload();
 
   // 1. connect hub 2 as "my wallet" and show its balance
+  await click('Lightning');
   await text('Connect your wallet');
   await connect(NWC_RECIPIENT);
   await text('signet (test coins)');

@@ -15,7 +15,8 @@
     "e2e:wallet": "tsx --env-file=../../.env e2e/wallet.ts",
     "e2e:bitcoin": "tsx --env-file=../../.env e2e/bitcoin-wallet.ts",
     "e2e:onchain-group": "tsx --env-file=../../.env e2e/onchain-group.ts",
-    "e2e:bump": "tsx --env-file=../../.env e2e/bitcoin-bump.ts"
+    "e2e:bump": "tsx --env-file=../../.env e2e/bitcoin-bump.ts",
+    "e2e:connect": "tsx e2e/connect.ts"
   },
   "dependencies": {
     "@ajo/core": "*",

@@ -43,6 +43,12 @@ The **Lightning** tab does not hold funds: it is an interface to the user's own 
 example Alby Hub), which is where the Lightning node lives. An in-browser Lightning node is not practical
 today, so the app pairs the two: on-chain for keeping, Lightning for paying the circle.
 
+**Connecting a Lightning wallet.** On the Wallet page (Lightning tab) the member types their wallet's address
+(for example `my.albyhub.com`), presses **Connect**, and approves in a window the wallet opens, much like
+connecting a wallet to a web app elsewhere; pasting a connection code still works. On a group page,
+a browser Lightning extension (WebLN) can also pay a round's invoice with one click. Both rely on the wallet
+supporting Nostr Wallet Connect's approval link or WebLN; try yours with a small amount first.
+
 **Want to see it?** After setup, `npm run demo` starts the web app and the coordinator and prints the steps to run an on-chain ajo in two browser windows. The script to present it is in [docs/DEMO.md](docs/DEMO.md).
 
 ## How it works
@@ -294,6 +300,7 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
 | `e2e:bitcoin -w @ajo/web` | web dev server, Chrome, internet (Mutinynet); `ONCHAIN_TEST_MNEMONIC` for the funded half | the on-chain wallet: create, verify backup, lock/unlock, restore on a second device; with funds, real balance and a real signed payment confirmed in a block | network fee only |
 | `e2e:onchain-group -w @ajo/web` | relay, web dev server, Chrome, internet; funded `ONCHAIN_TEST_MNEMONIC` for the payment half | a group paid in Bitcoin: invite, join with the wallet's address, pay from the group page, the coordinator closes the round from the blockchain | ~1,200 test sats |
+| `e2e:connect -w @ajo/web` | web dev server, Chrome | one-click wallet connection: the app opens the wallet's approval window and keeps the connection it gets back (a stand-in wallet page answers; a real hub is tried by hand) | free |
 | `e2e:bump -w @ajo/web` | internet; funded `ONCHAIN_TEST_MNEMONIC` (1,500+ sats) | a payment sent at the lowest fee is replaced by a faster one on the real signet, and only the replacement is mined | ~1,000 test sats |
 | `e2e:wallet -w @ajo/web` | web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | the Wallet page: connect, balance, receive from another wallet, send to an invoice and to a Lightning address, budget meter, over-budget payment refused (about 1400 sats) | ~1400 sats |
 | `e2e:invite -w @ajo/web` | same | two browser identities: invite link, approval, start, payment from outside the app, confirmation | 1000 sats |

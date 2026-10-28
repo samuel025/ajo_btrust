@@ -122,3 +122,40 @@ describe('reminders from the coordinator', () => {
     expect(shown).toEqual([0]); // round 5 has no state, so it is not shown either
   });
 });
+
+describe('connecting a wallet', () => {
+  it('turns what a person types into the wallet approval address', async () => {
+    const { hubAuthorizationUrl } = await import('../src/lib/connect');
+    expect(hubAuthorizationUrl('my.albyhub.com')).toBe('https://my.albyhub.com/apps/new');
+    expect(hubAuthorizationUrl(' https://my.albyhub.com/ ')).toBe('https://my.albyhub.com/apps/new');
+    expect(hubAuthorizationUrl('https://hub.example.com/some/path?x=1')).toBe('https://hub.example.com/apps/new');
+    expect(hubAuthorizationUrl('localhost:8080')).toBe('http://localhost:8080/apps/new');
+    expect(hubAuthorizationUrl('http://127.0.0.1:8081')).toBe('http://127.0.0.1:8081/apps/new');
+    expect(() => hubAuthorizationUrl('')).toThrow(/address of your wallet/);
+    expect(() => hubAuthorizationUrl('http://evil.example.com')).toThrow(/secure/);
+    expect(() => hubAuthorizationUrl('not a url at all')).toThrow(/web address/);
+    expect(() => hubAuthorizationUrl('https://x.com/#/apps')).toThrow(/plain address/);
+  });
+
+  it('explains the ways connecting can go wrong', async () => {
+    const { describeConnectError } = await import('../src/lib/connect');
+    expect(describeConnectError(new Error('failed to execute window.open'))).toMatch(/pop-ups/);
+    expect(describeConnectError(new Error('Popup closed'))).toMatch(/closed before you approved/);
+    expect(describeConnectError(new Error('no walletPubkey in response'))).toMatch(/recent version/);
+  });
+
+  it('pays through a browser extension, and says plainly when there is none or it is declined', async () => {
+    const { payWithExtension } = await import('../src/lib/connect');
+    const g = globalThis as unknown as { window?: unknown };
+    g.window = {};
+    await expect(payWithExtension('lnbc1x')).rejects.toThrow(/No Lightning wallet extension/);
+    const proof = 'ab'.repeat(32);
+    g.window = { webln: { enable: async () => undefined, sendPayment: async () => ({ preimage: proof }) } };
+    expect(await payWithExtension('lnbc1x')).toBe(proof);
+    g.window = { webln: { enable: async () => undefined, sendPayment: async () => { throw new Error('User rejected'); } } };
+    await expect(payWithExtension('lnbc1x')).rejects.toThrow(/declined/);
+    g.window = { webln: { enable: async () => undefined, sendPayment: async () => ({ preimage: 'nope' }) } };
+    await expect(payWithExtension('lnbc1x')).rejects.toThrow(/did not return a payment proof/);
+    delete g.window;
+  });
+});

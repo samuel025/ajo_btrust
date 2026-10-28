@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Ctx } from '../App';
 import { BitcoinWallet } from './BitcoinWallet';
+import { connectWithHub } from '../lib/connect';
 import { InvoiceQr } from '../components/InvoiceQr';
 import { withNaira, formatNaira, satsToNaira } from '../lib/rate';
 import {
@@ -30,11 +31,27 @@ function LightningWallet({ ctx }: { ctx: Ctx }) {
 }
 
 function ConnectCard({ ctx }: { ctx: Ctx }) {
+  const [hub, setHub] = useState(() => { try { return localStorage.getItem('ajo.hubAddress') ?? ''; } catch { return ''; } });
   const [text, setText] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
-  const connect = async (e: React.FormEvent) => {
+  const approve = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(undefined);
+    setBusy(true);
+    try {
+      const url = await connectWithHub(hub);
+      try { localStorage.setItem('ajo.hubAddress', hub.trim()); } catch { /* it is only a convenience */ }
+      ctx.updateSettings({ nwcUrl: url });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const paste = async (e: React.FormEvent) => {
     e.preventDefault();
     const url = text.trim();
     if (!isNwcUrl(url)) return setError('That is not a wallet connection. It starts with nostr+walletconnect://');
@@ -51,26 +68,43 @@ function ConnectCard({ ctx }: { ctx: Ctx }) {
   };
 
   return (
-    <form onSubmit={connect}>
+    <>
       <p className="muted">
         Send and receive Bitcoin over Lightning from your own wallet. The money stays in <i>your</i> wallet; this page only asks it to
-        pay or to make an invoice, through Nostr Wallet Connect (NWC).
+        pay or to make an invoice.
       </p>
-      <section className="card">
+      <form className="card" onSubmit={approve}>
         <h2>Connect your wallet</h2>
-        <ol className="steps">
-          <li>In your wallet (for example Alby Hub: Connections, then Add connection), create a connection.</li>
-          <li>Give it only what you need. A <b>spending budget</b> is wise.</li>
-          <li>Copy the connection and paste it here.</li>
-        </ol>
-        <label>Wallet connection
-          <input type="password" autoComplete="off" value={text} onChange={(e) => setText(e.target.value)} placeholder="nostr+walletconnect://…" />
-          <span className="muted small">Kept in this browser only. Treat it like a password.</span>
+        <label>Your wallet's address
+          <input value={hub} onChange={(e) => setHub(e.target.value)} placeholder={import.meta.env.DEV ? 'localhost:8080' : 'my.albyhub.com'} autoComplete="off" autoCapitalize="none" />
+          <span className="muted small">For an Alby Hub account this is your hub's web address. A window opens in your wallet; you check what is being allowed (set a spending limit if you like) and press Approve.</span>
         </label>
         {error && <p className="error">{error}</p>}
-        <button aria-busy={busy} disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Connect'}</button>
-      </section>
-    </form>
+        <button aria-busy={busy} disabled={busy || !hub.trim()}>{busy ? 'Waiting for your approval…' : 'Connect'}</button>
+      </form>
+
+      <details className="card">
+        <summary>I have a connection code to paste instead</summary>
+        <form onSubmit={paste}>
+          <p className="muted small">In your wallet (for example Alby Hub: Connections, Add connection), create a connection with a spending budget, copy it, and paste it here.</p>
+          <label>Wallet connection
+            <input type="password" autoComplete="off" value={text} onChange={(e) => setText(e.target.value)} placeholder="nostr+walletconnect://…" />
+            <span className="muted small">Kept in this browser only. Treat it like a password.</span>
+          </label>
+          <button aria-busy={busy} disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Connect'}</button>
+        </form>
+      </details>
+
+      <details className="card">
+        <summary>I don't have a Lightning wallet yet</summary>
+        <p className="muted">You need a wallet that can send and receive over Lightning. Any one works for paying a round by scanning the QR code on the group page, and this page connects to the ones that support Nostr Wallet Connect, such as Alby Hub.</p>
+        <ul className="muted small">
+          <li>To <b>pay</b>: any Lightning wallet with a little money in it.</li>
+          <li>To <b>be paid</b> (when it's your turn): a wallet that can receive that much, and a Lightning address (it looks like an email: <code>you@wallet.com</code>).</li>
+          <li>Setting up your own wallet takes a few minutes. Alby Hub is one option: <a href="https://albyhub.com" target="_blank" rel="noreferrer">albyhub.com</a>.</li>
+        </ul>
+      </details>
+    </>
   );
 }
 

@@ -5,6 +5,7 @@ import { inviteLink } from '../lib/invite';
 import { clearPending, loadPending } from '../lib/pending';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
+import { payWithExtension, weblnProvider } from '../lib/connect';
 import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress, validateBitcoinAddress } from '../lib/format';
 import { formatNaira, satsToNaira, withNaira, type Rate } from '../lib/rate';
 import { walletNetwork } from '../lib/onchain/config';
@@ -242,6 +243,19 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
     }
   };
 
+  // A Lightning extension in the browser (WebLN) can pay without any connection being set up.
+  const hasExtension = !!weblnProvider();
+  const payExtension = async () => {
+    setError(undefined);
+    setStatus('paying');
+    try {
+      await publishReceipt(await payWithExtension(invoice!));
+    } catch (err) {
+      setError((err as Error).message);
+      setStatus('idle');
+    }
+  };
+
   const submitProof = async () => {
     setError(undefined);
     const preimage = proof.trim().toLowerCase();
@@ -284,11 +298,16 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
           {ctx.settings.nwcUrl ? (
             <p className="muted small">Or pay with your connected wallet:</p>
           ) : (
-            <p className="muted small">Tip: connect a wallet in <a href="#/settings">Settings</a> to pay with one tap instead.</p>
+            <p className="muted small">Tip: <a href="#/wallet">connect a wallet</a> to pay with one tap instead.</p>
           )}
         </>
       )}
       {error && <p className="error">{error}</p>}
+      {usable && !ctx.settings.nwcUrl && hasExtension && (
+        <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={payExtension}>
+          {status === 'paying' ? 'Waiting for your wallet…' : `Pay ${formatSats(group.amountSats)} with my browser wallet`}
+        </button>
+      )}
       {usable && ctx.settings.nwcUrl && (
         <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={pay}>
           {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
