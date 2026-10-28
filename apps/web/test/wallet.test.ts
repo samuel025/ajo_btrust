@@ -186,3 +186,19 @@ describe('checking a Lightning address when joining', () => {
     expect(await checkLightningAddress('ada@localhos:5432', 1000, refused)).toMatchObject({ kind: 'unreachable', message: expect.stringContaining('typo') });
   });
 });
+
+describe('remembering a payment', () => {
+  it('keeps what was paid for a round, per payer, so a failure afterwards cannot lead to paying twice', async () => {
+    const store = new Map<string, string>();
+    (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    const { recallPaid, rememberPaid } = await import('../src/lib/paid');
+    expect(recallPaid('g', 0, 'me')).toBeUndefined();
+    rememberPaid('g', 0, 'me', { invoice: 'lnbc1x', preimage: 'ab'.repeat(32) });
+    expect(recallPaid('g', 0, 'me')).toEqual({ invoice: 'lnbc1x', preimage: 'ab'.repeat(32) });
+    expect(recallPaid('g', 1, 'me')).toBeUndefined(); // the next round is a new payment
+    expect(recallPaid('g', 0, 'someone-else')).toBeUndefined();
+    store.set('ajo.paid.g.2.me', 'not json');
+    expect(recallPaid('g', 2, 'me')).toBeUndefined();
+    delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
+  });
+});

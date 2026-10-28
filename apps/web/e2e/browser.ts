@@ -67,6 +67,9 @@ try {
   await pool.publish([relay], finalizeEvent(joinEvent({ groupId, lightningAddress: `amaka@localhost:${PORT}` }, groupKey), recipientKey))[0];
   await page.type('input[placeholder="you@wallet.com"]', 'me@unused.test');
   await clickButton('Join');
+  // an address that can't be looked up is warned about first; the person may go on anyway
+  await text('Join anyway');
+  await clickButton('Join anyway');
   await text('Waiting for the coordinator to open this round');
   step('joined; UI waits for the coordinator');
 

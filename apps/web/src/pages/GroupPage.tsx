@@ -6,6 +6,7 @@ import { clearPending, loadPending } from '../lib/pending';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
 import { payWithExtension, weblnProvider } from '../lib/connect';
+import { recallPaid, rememberPaid } from '../lib/paid';
 import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress, validateBitcoinAddress } from '../lib/format';
 import { formatNaira, satsToNaira, withNaira, type Rate } from '../lib/rate';
 import { walletNetwork } from '../lib/onchain/config';
@@ -25,16 +26,18 @@ function currentRound(group: GroupDef, rounds: Map<number, RoundState>): number 
 
 export function GroupPage({ ctx, author, id }: { ctx: Ctx; author: string; id: string }) {
   const relay = ctx.settings.relay;
-  const { data: loaded, error } = usePoll(() => loadGroup(relay, { author, id }, ctx.signer), [relay, author, id], 10000);
+  const { data: loaded, error, refresh: refreshGroup } = usePoll(() => loadGroup(relay, { author, id }, ctx.signer), [relay, author, id], 10000);
   if (error) return <p className="error">Couldn't load this group from {relay}. {error}</p>;
   if (!loaded) return <p className="muted">Loading group…</p>;
-  return <Loaded ctx={ctx} published={loaded.group} groupKey={loaded.key} author={author} />;
+  return <Loaded ctx={ctx} published={loaded.group} groupKey={loaded.key} author={author} refreshGroup={refreshGroup} />;
 }
 
-function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: GroupDef; groupKey: GroupKey; author: string }) {
+function Loaded({ ctx, published, groupKey, author, refreshGroup }: { ctx: Ctx; published: GroupDef; groupKey: GroupKey; author: string; refreshGroup: () => Promise<void> }) {
   const relay = ctx.settings.relay;
   const me = ctx.signer.pubkey;
-  const { data: activity, refresh } = usePoll(() => loadActivity(relay, published, groupKey, ctx.signer), [relay, published.id]);
+  const { data: activity, refresh: refreshActivity } = usePoll(() => loadActivity(relay, published, groupKey, ctx.signer), [relay, published.id]);
+  /** Reloads the group's definition and its activity, resolving when both are on screen. */
+  const refresh = () => Promise.all([refreshGroup(), refreshActivity()]).then(() => undefined);
   // A deferred recipient changes the payout order; the coordinator records it in the round state.
   const group = activity ? effectiveGroup(published, activity.rounds) : published;
   const isMember = group.payoutOrder.includes(me);
@@ -129,7 +132,7 @@ function paidCell(group: GroupDef, n: number, state: RoundState | undefined, owi
   return state ? `${state.paid.length} of ${owing}` : '—';
 }
 
-function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef; groupKey: GroupKey; onDone: () => void }) {
+function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef; groupKey: GroupKey; onDone: () => void | Promise<void> }) {
   const [address, setAddress] = useState('');
   const [language, setLanguage] = useState<Language>('en');
   const [error, setError] = useState<string>();
@@ -149,7 +152,7 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
         if (check.kind === 'unreachable') { setError(check.message); setUnsure(true); setBusy(false); return; }
       }
       await publish(ctx.settings.relay, ctx.signer, joinEvent({ groupId: group.id, lightningAddress: onchain ? '' : address.trim(), bitcoinAddress: onchain ? address.trim() : undefined, language }, groupKey));
-      onDone();
+      await onDone();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -174,12 +177,13 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
 }
 
 function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
-  ctx: Ctx; group: GroupDef; groupKey: GroupKey; activity: GroupActivity; round: number | undefined; onPaid: () => void;
+  ctx: Ctx; group: GroupDef; groupKey: GroupKey; activity: GroupActivity; round: number | undefined; onPaid: () => void | Promise<void>;
 }) {
   const me = ctx.signer.pubkey;
   const [status, setStatus] = useState<'idle' | 'paying' | 'sent'>('idle');
   const [error, setError] = useState<string>();
   const [proof, setProof] = useState('');
+  const [proofError, setProofError] = useState<string>();
 
   if (round === undefined) return <section className="card"><h2>All done</h2><p>Every member has been paid. This cycle is complete.</p></section>;
   const state = activity.rounds.get(round);
@@ -208,8 +212,35 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       </section>
     );
   }
-  if (state.paid.includes(me) || status === 'sent') {
-    return <section className="card"><h2>{heading}</h2><p>✓ You've paid. {state.paid.includes(me) ? 'The coordinator has confirmed it.' : 'Waiting for the coordinator to confirm.'}</p></section>;
+  // A payment this browser already made counts even if telling the group about it failed or the page was reloaded.
+  const remembered = recallPaid(group.id, round, me);
+  const confirmed = state.paid.includes(me);
+  if (confirmed || status === 'sent' || remembered) {
+    const resend = async () => {
+      if (!remembered) return;
+      setProofError(undefined);
+      setStatus('paying');
+      try {
+        await publish(ctx.settings.relay, ctx.signer, receiptEvent({ groupId: group.id, round, payer: me, recipient: state.recipient, invoice: remembered.invoice, preimage: remembered.preimage }, groupKey));
+        await onPaid();
+      } catch (err) {
+        setProofError((err as Error).message);
+      } finally {
+        setStatus('sent');
+      }
+    };
+    return (
+      <section className="card">
+        <h2>{heading}</h2>
+        <p>✓ You've paid. {confirmed ? 'The coordinator has confirmed it.' : 'Waiting for the coordinator to confirm.'}</p>
+        {!confirmed && proofError && (
+          <>
+            <p className="error">Your payment went through, but telling the group about it failed ({proofError}). You do <b>not</b> need to pay again.</p>
+            <button className="secondary" aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={resend}>Send the proof again</button>
+          </>
+        )}
+      </section>
+    );
   }
 
   if (group.rail === 'onchain') {
@@ -231,49 +262,59 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   const expired = !!invoice && invoiceStatus(invoice, Math.floor(Date.now() / 1000)) === 'expired';
   const usable = !!invoice && !expired;
 
-  const publishReceipt = async (preimage: string) => {
-    await publish(ctx.settings.relay, ctx.signer, receiptEvent({
-      groupId: group.id, round, payer: me, recipient: state.recipient, invoice: invoice!, preimage,
-    }, groupKey));
+  /** Records that the wallet paid, then tells the group. Remembering comes first, so nothing after it can lead to a second payment. */
+  const settle = async (preimage: string) => {
+    rememberPaid(group.id, round, me, { invoice: invoice!, preimage });
     setStatus('sent');
-    onPaid();
+    try {
+      await publish(ctx.settings.relay, ctx.signer, receiptEvent({
+        groupId: group.id, round, payer: me, recipient: state.recipient, invoice: invoice!, preimage,
+      }, groupKey));
+      await onPaid();
+    } catch (err) {
+      setProofError((err as Error).message);
+    }
   };
 
   const pay = async () => {
+    if (status !== 'idle') return;
     setError(undefined);
     setStatus('paying');
+    let preimage: string;
     try {
-      await publishReceipt(await payInvoice(ctx.settings.nwcUrl, invoice!));
+      preimage = await payInvoice(ctx.settings.nwcUrl, invoice!);
     } catch (err) {
       setError((err as Error).message);
       setStatus('idle');
+      return;
     }
+    await settle(preimage);
   };
 
   // A Lightning extension in the browser (WebLN) can pay without any connection being set up.
   const hasExtension = !!weblnProvider();
   const payExtension = async () => {
+    if (status !== 'idle') return;
     setError(undefined);
     setStatus('paying');
+    let preimage: string;
     try {
-      await publishReceipt(await payWithExtension(invoice!));
+      preimage = await payWithExtension(invoice!);
     } catch (err) {
       setError((err as Error).message);
       setStatus('idle');
+      return;
     }
+    await settle(preimage);
   };
 
   const submitProof = async () => {
+    if (status !== 'idle') return;
     setError(undefined);
     const preimage = proof.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(preimage)) return setError('Payment proof is 64 characters of letters a-f and numbers. Your wallet shows it as the "preimage".');
     setStatus('paying');
-    try {
-      await publishReceipt(preimage);
-    } catch (err) {
-      setError((err as Error).message);
-      setStatus('idle');
-    }
+    await settle(preimage);
   };
 
   return (
@@ -324,7 +365,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   );
 }
 
-function AutopayCard({ ctx, group, enabled, onChanged }: { ctx: Ctx; group: GroupDef; enabled: boolean; onChanged: () => void }) {
+function AutopayCard({ ctx, group, enabled, onChanged }: { ctx: Ctx; group: GroupDef; enabled: boolean; onChanged: () => void | Promise<void> }) {
   const [url, setUrl] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -336,7 +377,7 @@ function AutopayCard({ ctx, group, enabled, onChanged }: { ctx: Ctx; group: Grou
     try {
       await publish(ctx.settings.relay, ctx.signer, await autopayEvent(group.id, nwcUrl, group.coordinator, ctx.signer.cipher));
       setUrl('');
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -382,7 +423,7 @@ function NoticesCard({ notices }: { notices: GroupActivity['notices'] }) {
   );
 }
 
-function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: GroupDef; thread: GroupActivity['thread']; onAsked: () => void }) {
+function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: GroupDef; thread: GroupActivity['thread']; onAsked: () => void | Promise<void> }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -394,7 +435,7 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
     try {
       await publish(ctx.settings.relay, ctx.signer, await askEvent(group.id, text.trim(), group.coordinator, ctx.signer.cipher));
       setText('');
-      onAsked();
+      await onAsked();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -433,7 +474,7 @@ function rateNote(rate: Rate): string {
 }
 
 function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
-  ctx: Ctx; group: GroupDef; groupKey: GroupKey; requests: GroupActivity['requests']; onChanged: () => void;
+  ctx: Ctx; group: GroupDef; groupKey: GroupKey; requests: GroupActivity['requests']; onChanged: () => void | Promise<void>;
 }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -445,7 +486,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
     setBusy(true);
     try {
       await publishGroupUpdate(ctx.settings.relay, ctx.signer, next, groupKey);
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -475,12 +516,12 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
       </div>
 
       <h2>Requests to join</h2>
-      {requests.length === 0 && <p className="muted">No requests yet.</p>}
+      {requests.filter((r) => !group.payoutOrder.includes(r.member)).length === 0 && <p className="muted">No requests waiting.</p>}
       <ul className="requests">
-        {requests.map((r) => (
+        {requests.filter((r) => !group.payoutOrder.includes(r.member)).map((r) => (
           <li key={r.id}>
             <span>{shortKey(r.member)}<div className="muted small">{r.lightningAddress || r.bitcoinAddress}</div></span>
-            <button aria-busy={busy} disabled={busy} onClick={() => update({ ...group, payoutOrder: [...group.payoutOrder, r.member] })}>{busy ? 'Adding…' : 'Add to group'}</button>
+            <button aria-busy={busy} disabled={busy} onClick={() => (group.payoutOrder.includes(r.member) ? undefined : update({ ...group, payoutOrder: [...group.payoutOrder, r.member] }))}>{busy ? 'Adding…' : 'Add to group'}</button>
           </li>
         ))}
       </ul>

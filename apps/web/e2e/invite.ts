@@ -13,7 +13,7 @@ const relay = process.env.RELAY ?? 'ws://localhost:7777';
 const app = process.env.APP ?? 'http://localhost:5173';
 const shots = process.env.SHOTS ?? '.';
 const PORT = 3461;
-const GUEST_ADDRESS = 'guest-secret-address@unused.test';
+const GUEST_ADDRESS = `guest-secret-address@localhost:${PORT}`;
 const check = (ok: boolean, msg: string) => { if (!ok) throw new Error(`FAILED: ${msg}`); console.log('ok  ', msg); };
 
 const botKey = generateSecretKey();
@@ -81,7 +81,7 @@ try {
 
   // --- organizer approves and starts
   await org.text('Requests to join');
-  await org.page.waitForFunction(() => document.body.innerText.includes('guest-secret-address@unused.test'), { timeout: 40000 });
+  await org.page.waitForFunction(() => document.body.innerText.includes('guest-secret-address@localhost'), { timeout: 40000 });
   await org.page.screenshot({ path: `${shots}/8-organizer-requests.png` });
   await org.click('Add to group');
   await org.page.waitForFunction(() => document.body.innerText.includes('2 in the group so far'), { timeout: 40000 });
