@@ -4,9 +4,10 @@ import { loadActivity, loadGroup, publish, publishGroupUpdate, type GroupActivit
 import { inviteLink } from '../lib/invite';
 import { clearPending, loadPending } from '../lib/pending';
 import { usePoll } from '../lib/hooks';
-import { payInvoice } from '../lib/pay';
-import { payWithExtension, weblnProvider } from '../lib/connect';
-import { recallPaid, rememberPaid } from '../lib/paid';
+import { isDefinitelyNotPaid, payInvoice } from '../lib/pay';
+import { describeWalletError } from '../lib/wallet';
+import { NotPaidError, payWithExtension, weblnProvider } from '../lib/connect';
+import { clearAttempt, hasAttempt, markAttempt, recallPaid, rememberPaid } from '../lib/paid';
 import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress, validateBitcoinAddress } from '../lib/format';
 import { formatNaira, satsToNaira, withNaira, type Rate } from '../lib/rate';
 import { walletNetwork } from '../lib/onchain/config';
@@ -197,10 +198,11 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   ctx: Ctx; group: GroupDef; groupKey: GroupKey; activity: GroupActivity; round: number | undefined; onPaid: () => void | Promise<void>;
 }) {
   const me = ctx.signer.pubkey;
-  const [status, setStatus] = useState<'idle' | 'paying' | 'sent'>('idle');
+  const [status, setStatus] = useState<'idle' | 'paying' | 'sent' | 'uncertain'>('idle');
   const [error, setError] = useState<string>();
   const [proof, setProof] = useState('');
   const [proofError, setProofError] = useState<string>();
+  const [lateProof, setLateProof] = useState('');
 
   if (round === undefined) return <section className="card"><h2>All done</h2><p>Every member has been paid. This cycle is complete.</p></section>;
   const state = activity.rounds.get(round);
@@ -233,12 +235,16 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   const remembered = recallPaid(group.id, round, me);
   const confirmed = state.paid.includes(me);
   if (confirmed || status === 'sent' || remembered) {
-    const resend = async () => {
-      if (!remembered) return;
+    /** Tells the group about a payment already made: with the stored proof, or one the person types in. */
+    const resend = async (typedProof?: string) => {
+      const preimage = typedProof ?? remembered?.preimage;
+      if (!remembered || !preimage) return;
+      if (!/^[0-9a-f]{64}$/.test(preimage)) return setProofError('Payment proof is 64 characters of letters a-f and numbers.');
       setProofError(undefined);
       setStatus('paying');
       try {
-        await publish(ctx.settings.relay, ctx.signer, receiptEvent({ groupId: group.id, round, payer: me, recipient: state.recipient, invoice: remembered.invoice, preimage: remembered.preimage }, groupKey));
+        await publish(ctx.settings.relay, ctx.signer, receiptEvent({ groupId: group.id, round, payer: me, recipient: state.recipient, invoice: remembered.invoice, preimage }, groupKey));
+        rememberPaid(group.id, round, me, { invoice: remembered.invoice, preimage });
         await onPaid();
       } catch (err) {
         setProofError((err as Error).message);
@@ -250,10 +256,22 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       <section className="card">
         <h2>{heading}</h2>
         <p>✓ You've paid. {confirmed ? 'The coordinator has confirmed it.' : 'Waiting for the coordinator to confirm.'}</p>
+        {!confirmed && remembered && !remembered.preimage && (
+          <p className="muted small">Your wallet said the payment went through but didn't return a payment proof. The coordinator confirms it by itself when the recipient's provider allows that, usually within a minute. If it doesn't, copy the proof (the "preimage") from your wallet's payment details and send it from here later.</p>
+        )}
+        {!confirmed && remembered && !remembered.preimage && (
+          <details>
+            <summary>I have the payment proof</summary>
+            <label>Payment proof (preimage)
+              <input value={lateProof} onChange={(e) => setLateProof(e.target.value)} placeholder="64 letters and numbers" autoComplete="off" />
+            </label>
+            <button type="button" className="secondary" aria-busy={status === 'paying'} disabled={!lateProof.trim() || status === 'paying'} onClick={() => resend(lateProof.trim().toLowerCase())}>Send the proof</button>
+          </details>
+        )}
         {!confirmed && proofError && (
           <>
             <p className="error">Your payment went through, but telling the group about it failed ({proofError}). You do <b>not</b> need to pay again.</p>
-            <button className="secondary" aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={resend}>Send the proof again</button>
+            <button className="secondary" aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={() => resend()}>Send the proof again</button>
           </>
         )}
       </section>
@@ -280,9 +298,11 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   const usable = !!invoice && !expired;
 
   /** Records that the wallet paid, then tells the group. Remembering comes first, so nothing after it can lead to a second payment. */
-  const settle = async (preimage: string) => {
+  const settle = async (preimage: string | undefined) => {
     rememberPaid(group.id, round, me, { invoice: invoice!, preimage });
+    clearAttempt(group.id, round, me);
     setStatus('sent');
+    if (!preimage) return; // no proof to send: the coordinator confirms it from the provider, or the person sends the proof later
     try {
       await publish(ctx.settings.relay, ctx.signer, receiptEvent({
         groupId: group.id, round, payer: me, recipient: state.recipient, invoice: invoice!, preimage,
@@ -293,48 +313,64 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
     }
   };
 
-  const pay = async () => {
+  /**
+   * Runs a payment through one of the wallets. From the moment it starts, nothing on this card can start another one:
+   * "started" is remembered (so a reload or a closed wallet window doesn't unlock it), and it only unlocks by itself when
+   * it is certain that nothing was paid. If the outcome is unknown, the person checks their wallet first.
+   */
+  const attemptPayment = async (run: () => Promise<{ preimage?: string }>, nothingPaid: (e: unknown) => boolean, describe: (e: unknown) => string) => {
     if (status !== 'idle') return;
     setError(undefined);
+    markAttempt(group.id, round, me);
     setStatus('paying');
-    let preimage: string;
+    let result: { preimage?: string };
     try {
-      preimage = await payInvoice(ctx.settings.nwcUrl, invoice!);
+      result = await run();
     } catch (err) {
-      setError((err as Error).message);
-      setStatus('idle');
+      setError(describe(err));
+      if (nothingPaid(err)) { clearAttempt(group.id, round, me); setStatus('idle'); } else setStatus('uncertain');
       return;
     }
-    await settle(preimage);
+    await settle(result.preimage);
   };
+
+  const pay = () => attemptPayment(async () => ({ preimage: await payInvoice(ctx.settings.nwcUrl, invoice!) }), isDefinitelyNotPaid, describeWalletError);
 
   // A Lightning extension in the browser (WebLN) can pay without any connection being set up.
   const hasExtension = !!weblnProvider();
   /** One clear main action when a wallet can pay in one tap (a connected wallet, or a browser extension). */
   const hasPrimary = !!ctx.settings.nwcUrl || hasExtension;
-  const payExtension = async () => {
-    if (status !== 'idle') return;
-    setError(undefined);
-    setStatus('paying');
-    let preimage: string;
-    try {
-      preimage = await payWithExtension(invoice!);
-    } catch (err) {
-      setError((err as Error).message);
-      setStatus('idle');
-      return;
-    }
-    await settle(preimage);
-  };
+  const payExtension = () => attemptPayment(() => payWithExtension(invoice!), (e) => e instanceof NotPaidError, (e) => (e as Error).message);
 
   const submitProof = async () => {
-    if (status !== 'idle') return;
+    if (status !== 'idle' && status !== 'uncertain') return;
     setError(undefined);
     const preimage = proof.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(preimage)) return setError('Payment proof is 64 characters of letters a-f and numbers. Your wallet shows it as the "preimage".');
     setStatus('paying');
     await settle(preimage);
   };
+
+  // A payment was started here and we don't know how it ended: nothing can be paid until the person has looked at their wallet.
+  if (status === 'uncertain' || (hasAttempt(group.id, round, me) && status === 'idle')) {
+    return (
+      <section className="card">
+        <h2>{heading}: check your wallet first</h2>
+        <p>A payment of {withNaira(group.amountSats, ctx.rate)} was started from this browser, but we couldn't tell whether it went through.</p>
+        {error && <p className="error">{error}</p>}
+        <p><b>Look at your wallet's history before paying again.</b> Paying twice would send the money twice.</p>
+        <p className="muted small">If it did go through, the coordinator confirms it by itself within a minute, or you can paste the payment proof below.</p>
+        <details>
+          <summary>I paid, and I have the payment proof</summary>
+          <label>Payment proof (preimage)
+            <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="64 letters and numbers" autoComplete="off" />
+          </label>
+          <button type="button" className="secondary" disabled={!proof.trim()} onClick={submitProof}>Submit proof</button>
+        </details>
+        <p><button type="button" className="secondary" onClick={() => { clearAttempt(group.id, round, me); setError(undefined); setStatus('idle'); }}>I checked: it did not go through, let me pay again</button></p>
+      </section>
+    );
+  }
 
   return (
     <section className="card">
@@ -346,7 +382,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       {expired && <p className="muted">The invoice has expired. The coordinator issues a fresh one automatically, usually within a minute, and it will appear here.</p>}
       {usable && hasPrimary && (
         <div className="primary-pay">
-          <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={ctx.settings.nwcUrl ? pay : payExtension}>
+          <button aria-busy={status === 'paying'} disabled={status !== 'idle'} onClick={ctx.settings.nwcUrl ? pay : payExtension}>
             {status === 'paying'
               ? (ctx.settings.nwcUrl ? 'Paying…' : 'Waiting for your wallet…')
               : `Pay ${formatSats(group.amountSats)} with my ${ctx.settings.nwcUrl ? 'connected' : 'browser'} wallet`}
@@ -362,7 +398,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       {usable && (
         <div className={hasPrimary ? 'alt-pay' : undefined}>
           <h3>{hasPrimary ? 'Or pay another way' : 'Pay with any Lightning wallet'}</h3>
-          <InvoiceQr invoice={invoice} />
+          <InvoiceQr invoice={invoice} disabled={status !== 'idle'} />
           <p className="muted small">
             {autoConfirm
               ? 'Scan the code, or open it in a wallet app on this device. The coordinator confirms the payment by itself, usually within a minute.'
@@ -374,7 +410,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
               <label>Payment proof (preimage)
                 <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="64 letters and numbers" autoComplete="off" />
               </label>
-              <button type="button" className="secondary" aria-busy={status === 'paying'} disabled={!proof.trim() || status === 'paying'} onClick={submitProof}>Submit proof</button>
+              <button type="button" className="secondary" disabled={!proof.trim() || status !== 'idle'} onClick={submitProof}>Submit proof</button>
             </details>
           )}
           {!hasPrimary && <p className="muted small">Tip: <a href="#/wallet">connect a wallet</a> to pay with one tap instead.</p>}

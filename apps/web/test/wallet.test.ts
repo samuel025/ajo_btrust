@@ -144,18 +144,31 @@ describe('connecting a wallet', () => {
     expect(describeConnectError(new Error('no walletPubkey in response'))).toMatch(/recent version/);
   });
 
-  it('pays through a browser extension, and says plainly when there is none or it is declined', async () => {
-    const { payWithExtension } = await import('../src/lib/connect');
+  it('says exactly when a payment did not happen, and never guesses when it is unsure', async () => {
+    const { NotPaidError, payWithExtension } = await import('../src/lib/connect');
     const g = globalThis as unknown as { window?: unknown };
-    g.window = {};
-    await expect(payWithExtension('lnbc1x')).rejects.toThrow(/No Lightning wallet extension/);
     const proof = 'ab'.repeat(32);
+    g.window = {};
+    await expect(payWithExtension('lnbc1x')).rejects.toBeInstanceOf(NotPaidError); // no extension: nothing paid
     g.window = { webln: { enable: async () => undefined, sendPayment: async () => ({ preimage: proof }) } };
-    expect(await payWithExtension('lnbc1x')).toBe(proof);
+    expect(await payWithExtension('lnbc1x')).toEqual({ preimage: proof });
+    g.window = { webln: { enable: async () => undefined, sendPayment: async () => ({ preimage: proof.toUpperCase() }) } };
+    expect(await payWithExtension('lnbc1x')).toEqual({ preimage: proof });
+    // declined by the person: certain that nothing was paid
     g.window = { webln: { enable: async () => undefined, sendPayment: async () => { throw new Error('User rejected'); } } };
-    await expect(payWithExtension('lnbc1x')).rejects.toThrow(/declined/);
-    g.window = { webln: { enable: async () => undefined, sendPayment: async () => ({ preimage: 'nope' }) } };
-    await expect(payWithExtension('lnbc1x')).rejects.toThrow(/did not return a payment proof/);
+    await expect(payWithExtension('lnbc1x')).rejects.toBeInstanceOf(NotPaidError);
+    g.window = { webln: { enable: async () => { throw new Error('User rejected'); }, sendPayment: async () => ({ preimage: proof }) } };
+    await expect(payWithExtension('lnbc1x')).rejects.toBeInstanceOf(NotPaidError);
+    // the wallet said it paid but gave no usable proof: it PAID, so this must not look like a failure
+    for (const odd of [{ preimage: 'nope' }, { preimage: '' }, {}, undefined]) {
+      g.window = { webln: { enable: async () => undefined, sendPayment: async () => odd } };
+      expect(await payWithExtension('lnbc1x')).toEqual({ preimage: undefined });
+    }
+    // an error after the payment was sent (a timeout, a closed window) leaves the outcome unknown: not a NotPaidError
+    g.window = { webln: { enable: async () => undefined, sendPayment: async () => { throw new Error('timeout'); } } };
+    const unknown = await payWithExtension('lnbc1x').catch((e) => e);
+    expect(unknown).toBeInstanceOf(Error);
+    expect(unknown).not.toBeInstanceOf(NotPaidError);
     delete g.window;
   });
 });
@@ -190,13 +203,24 @@ describe('checking a Lightning address when joining', () => {
 describe('remembering a payment', () => {
   it('keeps what was paid for a round, per payer, so a failure afterwards cannot lead to paying twice', async () => {
     const store = new Map<string, string>();
-    (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
     const { recallPaid, rememberPaid } = await import('../src/lib/paid');
     expect(recallPaid('g', 0, 'me')).toBeUndefined();
     rememberPaid('g', 0, 'me', { invoice: 'lnbc1x', preimage: 'ab'.repeat(32) });
     expect(recallPaid('g', 0, 'me')).toEqual({ invoice: 'lnbc1x', preimage: 'ab'.repeat(32) });
     expect(recallPaid('g', 1, 'me')).toBeUndefined(); // the next round is a new payment
     expect(recallPaid('g', 0, 'someone-else')).toBeUndefined();
+    // a payment whose outcome is unknown keeps the card locked until the person says otherwise
+    const { clearAttempt, hasAttempt, markAttempt } = await import('../src/lib/paid');
+    expect(hasAttempt('g', 0, 'me')).toBe(false);
+    markAttempt('g', 0, 'me');
+    expect(hasAttempt('g', 0, 'me')).toBe(true);
+    expect(hasAttempt('g', 1, 'me')).toBe(false);
+    clearAttempt('g', 0, 'me');
+    expect(hasAttempt('g', 0, 'me')).toBe(false);
+    // a payment made with no proof is still a payment
+    rememberPaid('g', 3, 'me', { invoice: 'lnbc1y' });
+    expect(recallPaid('g', 3, 'me')).toEqual({ invoice: 'lnbc1y' });
     store.set('ajo.paid.g.2.me', 'not json');
     expect(recallPaid('g', 2, 'me')).toBeUndefined();
     delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
@@ -224,5 +248,16 @@ describe('filling in the New group form from a description', () => {
     const applied = applyDraft({ amountSats: 3000, frequency: 'biweekly' }, 100_000_000);
     expect(applied.values).toEqual({ amount: '3000', frequency: 'biweekly' });
     expect(applied.changed.join(' ')).toContain('every two weeks');
+  });
+});
+
+describe('which wallet errors mean nothing was paid', () => {
+  it('treats refusals and a wallet that was never reached as unpaid, and a timeout as unknown', async () => {
+    const { isDefinitelyNotPaid } = await import('../src/lib/pay');
+    for (const code of ['QUOTA_EXCEEDED', 'INSUFFICIENT_BALANCE', 'RESTRICTED', 'PAYMENT_FAILED']) expect(isDefinitelyNotPaid({ code, message: 'x' })).toBe(true);
+    expect(isDefinitelyNotPaid(new Error('failed to connect to relay'))).toBe(true);
+    expect(isDefinitelyNotPaid(new Error('reply timeout: event abc'))).toBe(false);
+    expect(isDefinitelyNotPaid({ code: 'INTERNAL', message: 'oops' })).toBe(false);
+    expect(isDefinitelyNotPaid(undefined)).toBe(false);
   });
 });

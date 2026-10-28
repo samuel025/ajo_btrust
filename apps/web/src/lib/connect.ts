@@ -49,18 +49,31 @@ export interface WebLN {
 
 export const weblnProvider = (): WebLN | undefined => (typeof window === 'undefined' ? undefined : (window as unknown as { webln?: WebLN }).webln);
 
-/** Pays through the browser extension; the extension asks the person to approve. Returns the payment proof. */
-export async function payWithExtension(invoice: string): Promise<string> {
+/** The payment definitely did not happen (no wallet, or the person declined). Anything else leaves the outcome unknown. */
+export class NotPaidError extends Error {}
+
+/**
+ * Pays through the browser extension; the extension asks the person to approve. Resolves once the wallet says it paid,
+ * with the payment proof if it gave one. It throws NotPaidError only when it is certain nothing was paid; any other error
+ * means the outcome is unknown, so the caller must not offer to pay again without the person checking their wallet.
+ */
+export async function payWithExtension(invoice: string): Promise<{ preimage?: string }> {
   const provider = weblnProvider();
-  if (!provider) throw new Error('No Lightning wallet extension was found in this browser.');
+  if (!provider) throw new NotPaidError('No Lightning wallet extension was found in this browser.');
   try {
     await provider.enable();
-    const { preimage } = await provider.sendPayment(invoice);
-    if (!/^[0-9a-f]{64}$/i.test(preimage ?? '')) throw new Error('The wallet paid but did not return a payment proof.');
-    return preimage.toLowerCase();
+  } catch (e) {
+    throw new NotPaidError(/reject|denied|cancel|declin|user closed/i.test(String((e as Error)?.message ?? e)) ? 'You declined to connect your wallet.' : "Your wallet extension couldn't be opened.");
+  }
+  let result: { preimage?: string } | undefined;
+  try {
+    result = await provider.sendPayment(invoice);
   } catch (e) {
     const message = String((e as Error)?.message ?? e);
-    if (/reject|denied|cancel|declin|user closed/i.test(message)) throw new Error('You declined the payment in your wallet.');
-    throw e instanceof Error ? e : new Error(message);
+    if (/reject|denied|cancel|declin|user closed/i.test(message)) throw new NotPaidError('You declined the payment in your wallet.');
+    throw new Error(`Your wallet didn't say whether the payment went through (${message}).`);
   }
+  // The wallet said it paid. A missing or odd proof does not undo that.
+  const preimage = typeof result?.preimage === 'string' && /^[0-9a-f]{64}$/i.test(result.preimage) ? result.preimage.toLowerCase() : undefined;
+  return { preimage };
 }

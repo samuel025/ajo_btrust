@@ -20,3 +20,11 @@ export async function payInvoice(nwcUrl: string, invoice: string): Promise<strin
     }
   }
 }
+
+const NOT_PAID_CODES = new Set(['QUOTA_EXCEEDED', 'INSUFFICIENT_BALANCE', 'RESTRICTED', 'UNAUTHORIZED', 'NOT_IMPLEMENTED', 'PAYMENT_FAILED', 'RATE_LIMITED', 'NOT_FOUND']);
+
+/** True when the wallet certainly did not pay: it refused, or never received the request. A timeout leaves the outcome unknown. */
+export function isDefinitelyNotPaid(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return (!!e?.code && NOT_PAID_CODES.has(e.code)) || /failed to connect/i.test(String(e?.message ?? ''));
+}

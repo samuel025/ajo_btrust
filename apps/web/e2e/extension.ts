@@ -1,6 +1,7 @@
 // Paying with a browser wallet extension (WebLN), in real Chrome with a real Lightning payment. The extension is a stand-in
 // that pays through hub 1; what is tested is the page: it must show the payment as made, must not offer to pay a second
-// time (not even after a reload), and the bot must close the round. Needs the relay, `vite` on :5173, NWC_PAYER and NWC_RECIPIENT.
+// time (not even after a reload), and the bot must close the round. MODE=noproof: the extension pays but returns no payment
+// proof. MODE=unknown: it pays, then errors (a timeout), so the page can't know the outcome and must lock until the person checks. Needs the relay, `vite` on :5173, NWC_PAYER and NWC_RECIPIENT.
 import puppeteer from 'puppeteer-core';
 import { SimplePool, generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { KIND_REQUEST, checkVerify, fetchInvoice } from '@ajo/core';
@@ -12,6 +13,7 @@ const relay = process.env.RELAY ?? 'ws://localhost:7777';
 const app = process.env.APP ?? 'http://localhost:5173';
 const shots = process.env.SHOTS ?? '.';
 const PORT = 3472;
+const MODE = process.env.MODE ?? 'normal';
 const GUEST_ADDRESS = `guest-secret-address@localhost:${PORT}`;
 const check = (ok: boolean, msg: string) => { if (!ok) throw new Error(`FAILED: ${msg}`); console.log('ok  ', msg); };
 
@@ -66,8 +68,13 @@ try {
   // --- guest: a stranger with only the link, in a separate browser identity
   const guest = await open('guest');
   let paidCalls = 0;
-  await guest.page.exposeFunction('__payThroughHub', async (invoice: string) => { paidCalls++; return (await payInvoice(NWC_PAYER, invoice)).preimage; });
-  await guest.page.evaluateOnNewDocument(`window.webln = { enable: async () => undefined, sendPayment: async (inv) => ({ preimage: await window.__payThroughHub(inv) }) };`);
+  await guest.page.exposeFunction('__payThroughHub', async (invoice: string) => {
+    paidCalls++;
+    const { preimage } = await payInvoice(NWC_PAYER, invoice);
+    await new Promise((r) => setTimeout(r, 2500)); // the wallet window is open for a moment: the page must stay locked meanwhile
+    return preimage;
+  });
+  await guest.page.evaluateOnNewDocument(`window.webln = { enable: async () => undefined, sendPayment: async (inv) => { const p = await window.__payThroughHub(inv); if ('${MODE}' === 'noproof') return { preimage: 'not-a-preimage' }; if ('${MODE}' === 'unknown') throw new Error('timeout waiting for the wallet'); return { preimage: p }; } };`);
   await guest.page.goto(link);
   await guest.text("You're invited to Invite test");
   await guest.page.screenshot({ path: `${shots}/7-invite-landing.png` });
@@ -104,15 +111,32 @@ try {
   await guest.text('with my browser wallet');
   check(true, 'with a wallet extension and no connected wallet, the page offers "Pay … with my browser wallet"');
 
-  // pay through the extension; the page must move on at once and never offer a second payment
+  // pay through the extension. While the wallet works, EVERYTHING that could start a payment is locked.
   await guest.click('Pay 1,000 sats with my browser wallet');
-  await guest.text("You've paid");
-  check(true, "the page says \"You've paid\" as soon as the wallet has paid");
-  const offersAgain = () => guest.page.evaluate(() => [...document.querySelectorAll('button')].some((b) => /Pay .* with my browser wallet/.test(b.textContent ?? '')));
-  check(!(await offersAgain()), 'the pay button is gone, so it cannot be pressed a second time');
-  await guest.page.reload();
-  await guest.text("You've paid");
-  check(!(await offersAgain()), 'after a reload the page still knows it was paid and does not offer to pay again');
+  await guest.page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => /Waiting for your wallet/.test(b.textContent ?? '') && b.disabled), { timeout: 10000 });
+  const locked = await guest.page.evaluate(() => ({
+    mainDisabled: [...document.querySelectorAll('button')].filter((b) => /with my browser wallet|Waiting for your wallet/.test(b.textContent ?? '')).every((b) => b.disabled),
+    openLink: document.querySelector('a[href^="lightning:"]')?.getAttribute('aria-disabled'),
+    copyDisabled: [...document.querySelectorAll('button')].find((b) => /Copy invoice/.test(b.textContent ?? ''))?.disabled,
+  }));
+  check(locked.mainDisabled && locked.openLink === 'true' && locked.copyDisabled === true, 'while the wallet is working, the pay button, "Open in a wallet app" and "Copy invoice" are all disabled');
+  const offersAgain = () => guest.page.evaluate(() => [...document.querySelectorAll('button')].some((b) => /Pay .* with my browser wallet/.test(b.textContent ?? '') && !b.disabled));
+
+  if (MODE === 'unknown') {
+    await guest.text('check your wallet first');
+    check(!(await offersAgain()), 'the wallet paid but then errored: the page asks the person to check their wallet and offers no way to pay again');
+    await guest.page.reload();
+    await guest.text('check your wallet first');
+    check(!(await offersAgain()), 'after a reload it is still locked');
+  } else {
+    await guest.text("You've paid");
+    check(true, "the page says \"You've paid\" as soon as the wallet has paid" + (MODE === 'noproof' ? ' (even though no proof came back)' : ''));
+    if (MODE === 'noproof') check(await guest.page.evaluate(() => document.body.innerText.includes("didn't return a payment proof")), 'it explains that no proof came back and what happens next');
+    check(!(await offersAgain()), 'the pay button is gone, so it cannot be pressed a second time');
+    await guest.page.reload();
+    await guest.text("You've paid");
+    check(!(await offersAgain()), 'after a reload the page still knows it was paid and does not offer to pay again');
+  }
   check(paidCalls === 1, 'the wallet was asked to pay exactly once');
 
   // the bot sees the payment through the provider and closes the round

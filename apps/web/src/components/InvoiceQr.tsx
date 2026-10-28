@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 
 /** A QR code for a Lightning invoice, readable by any wallet app. */
-export function InvoiceQr({ invoice }: { invoice: string }) {
+/** `disabled` locks the buttons while a payment is in progress, so the same invoice can't be paid twice. */
+export function InvoiceQr({ invoice, disabled = false }: { invoice: string; disabled?: boolean }) {
   const [src, setSrc] = useState<string>();
   const [copied, setCopied] = useState(false);
 
@@ -27,8 +28,8 @@ export function InvoiceQr({ invoice }: { invoice: string }) {
     <div className="qr">
       {src && <img src={src} alt="Lightning invoice QR code" width={192} height={192} />}
       <div className="qr-actions">
-        <a className="button secondary" href={`lightning:${invoice}`}>Open in a wallet app</a>
-        <button type="button" className="secondary" onClick={copy}>{copied ? 'Copied' : 'Copy invoice'}</button>
+        <a className="button secondary" href={`lightning:${invoice}`} aria-disabled={disabled || undefined} tabIndex={disabled ? -1 : undefined} onClick={(e) => { if (disabled) e.preventDefault(); }} style={disabled ? { opacity: .45, pointerEvents: 'none' } : undefined}>Open in a wallet app</a>
+        <button type="button" className="secondary" disabled={disabled} onClick={copy}>{copied ? 'Copied' : 'Copy invoice'}</button>
       </div>
     </div>
   );
