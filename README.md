@@ -40,9 +40,12 @@ The **Lightning** tab does not hold funds: it is an interface to the user's own 
 example Alby Hub), which is where the Lightning node lives. An in-browser Lightning node is not practical
 today, so the app pairs the two: on-chain for keeping, Lightning for paying the circle.
 
-**Connecting a Lightning wallet.** On the Wallet page (Lightning tab) the member types their wallet's address
-(for example `my.albyhub.com`), presses **Connect**, and approves in a window the wallet opens, much like
-connecting a wallet to a web app elsewhere; pasting a connection code still works. On a group page,
+**Connecting a Lightning wallet.** On the Wallet page (Lightning tab) the member presses **Connect with Alby**,
+and approves in a window the wallet opens (choosing a spending limit), much like connecting a wallet to a web app
+elsewhere. A wallet at another address can be connected by typing that address under *My wallet is at a different
+address*, and pasting a connection code still works. The button goes to `VITE_HOSTED_WALLET_URL` (by default
+`https://my.albyhub.com`, the address in the Alby SDK's own example, so check it for your launch; in development it
+points at the local hub on `localhost:8080`). On a group page,
 a browser Lightning extension (WebLN) can also pay a round's invoice with one click. Both rely on the wallet
 supporting Nostr Wallet Connect's approval link or WebLN; try yours with a small amount first.
 
@@ -337,6 +340,7 @@ Set in `.env` at the repo root (read by the bot and the live tests), or in the e
 | `ORGANIZERS=*` | bot | Runs every group that names the bot. For a private demo only (`npm run demo` sets it). |
 | `AI_PORT`, `AI_HOST`, `AI_ALLOWED_ORIGIN` | bot | Where the coordinator serves the AI features the web app calls (3480, 127.0.0.1, any origin by default). The web app finds it at `VITE_AI_URL`, or `/ai` when hosted. |
 | `ESPLORA_URL`, `ONCHAIN_MIN_CONFIRMATIONS` | bot | The blockchain server the coordinator reads for on-chain groups (Mutinynet by default) and the confirmations a payment needs (1). |
+| `VITE_HOSTED_WALLET_URL` | web | Where "Connect with Alby" sends people (the address of the hosted wallet). Defaults to `https://my.albyhub.com`, or `localhost:8080` in development. |
 | `ONCHAIN_TEST_MNEMONIC` | `e2e:bitcoin` | A funded signet wallet for the live on-chain test. Run the test once without it and it prints a fresh one and an address to fund. |
 | `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |
 | `LNURL_INVOICE_EXPIRY` | stand-in | Seconds its invoices stay payable. By default the wallet's own (24 hours on Alby Hub). Short values are for testing refresh. |

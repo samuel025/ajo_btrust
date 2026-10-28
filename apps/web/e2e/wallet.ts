@@ -31,7 +31,7 @@ try {
   const connect = async (url: string) => {
     await click('I have a connection code to paste instead'); // the pasted code lives in a collapsed section
     await page.type('input[type="password"]', url);
-    await page.evaluate(() => (document.querySelector('details form button') as HTMLElement).click());
+    await page.evaluate(() => ([...document.querySelectorAll('details')].find((d) => d.textContent?.includes('connection code'))!.querySelector('form button') as HTMLElement).click());
     await page.waitForSelector('.balance', { timeout: 45000 });
   };
 

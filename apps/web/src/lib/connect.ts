@@ -2,6 +2,12 @@ import { NWCClient } from '@getalby/sdk';
 
 /* ---------- connecting a wallet with one click (the wallet asks the person to approve) ---------- */
 
+/**
+ * Where the one-click "Connect with Alby" button sends people: the address of Alby's hosted wallet. Change it with
+ * VITE_HOSTED_WALLET_URL. In development it points at the local hub, so the button can be tried without Alby's servers.
+ */
+export const HOSTED_WALLET: string = import.meta.env.VITE_HOSTED_WALLET_URL ?? (import.meta.env.DEV ? 'localhost:8080' : 'https://my.albyhub.com');
+
 /** What the app asks the wallet to allow. Paying is the one that matters; the person can narrow it in their wallet. */
 export const REQUEST_METHODS = ['get_info', 'get_balance', 'make_invoice', 'lookup_invoice', 'pay_invoice', 'list_transactions', 'get_budget'] as const;
 

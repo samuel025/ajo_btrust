@@ -26,7 +26,7 @@ try {
   await page.setViewport({ width: 900, height: 1100 });
   const text = (t: string, timeout = 30000) => page.waitForFunction((x) => document.body.innerText.includes(x), { timeout }, t);
   const click = (label: string) => page.evaluate((l) => {
-    const el = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(l)) as HTMLElement | undefined;
+    const el = [...document.querySelectorAll('button, summary')].find((b) => b.textContent?.trim().startsWith(l)) as HTMLElement | undefined;
     if (!el) throw new Error(`no button "${l}"`);
     el.click();
   }, label);
@@ -37,13 +37,21 @@ try {
   await page.goto(`${app}/#/wallet`);
   await page.reload();
   await click('Lightning');
-  await text("Your wallet's address");
+  await text('Connect with Alby');
   check(await page.evaluate(() => document.body.innerText.includes("I don't have a Lightning wallet yet")), 'a first-time user is shown how to get a wallet');
   check(await page.evaluate(() => document.body.innerText.includes('I have a connection code to paste instead')), 'pasting a connection code is still available, tucked away');
 
+  // "Connect with Alby" opens the hosted wallet's approval page (in development, the local hub)
+  const opened = new Promise<string>((resolve) => browser.once('targetcreated', (t) => resolve(t.url())));
+  await click('Connect with Alby');
+  const popupUrl = await Promise.race([opened, new Promise<string>((r) => setTimeout(() => r('none'), 8000))]);
+  check(/localhost:8080\/apps\/new\?/.test(popupUrl) && /name=Bitcoin\+Ajo/.test(popupUrl), `"Connect with Alby" opened the wallet's approval page (${popupUrl.slice(0, 60)}…)`);
+  for (const t of await browser.pages()) if (t !== page) await t.close().catch(() => undefined);
+  await text('wallet window was closed'); // closing the window is explained, and the page is usable again
+  await click('My wallet is at a different address');
   // pressing Connect with no address is not possible; an insecure address is refused in words
   await page.type('input[placeholder="localhost:8080"]', 'http://wallet.example.com');
-  await click('Connect');
+  await page.evaluate(() => (document.querySelector('details form button') as HTMLElement).click());
   await text('secure address');
   check(true, 'an insecure wallet address is refused with an explanation');
 
@@ -51,7 +59,7 @@ try {
   const input = await page.$('input[placeholder="localhost:8080"]');
   await input!.click({ clickCount: 3 });
   await input!.type(`localhost:${PORT}`);
-  await click('Connect');
+  await page.evaluate(() => (document.querySelector('details form button') as HTMLElement).click());
   await page.waitForFunction(() => { try { return !!JSON.parse(localStorage.getItem('ajo.settings') ?? '{}').nwcUrl; } catch { return false; } }, { timeout: 30000 });
   const nwc: string = await page.evaluate(() => JSON.parse(localStorage.getItem('ajo.settings')!).nwcUrl);
   check(nwc.startsWith(`nostr+walletconnect://${walletPubkey}`), 'the app kept the connection the wallet returned (for that wallet)');

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Ctx } from '../App';
 import { BitcoinWallet } from './BitcoinWallet';
-import { connectWithHub } from '../lib/connect';
+import { HOSTED_WALLET, connectWithHub } from '../lib/connect';
 import { WalletGuide } from '../components/WalletGuide';
 import { InvoiceQr } from '../components/InvoiceQr';
 import { withNaira, formatNaira, satsToNaira } from '../lib/rate';
@@ -37,13 +37,13 @@ function ConnectCard({ ctx }: { ctx: Ctx }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
-  const approve = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /** Opens the wallet's approval window at `address` and keeps the connection it returns. */
+  const approve = async (address: string) => {
     setError(undefined);
     setBusy(true);
     try {
-      const url = await connectWithHub(hub);
-      try { localStorage.setItem('ajo.hubAddress', hub.trim()); } catch { /* it is only a convenience */ }
+      const url = await connectWithHub(address);
+      if (address !== HOSTED_WALLET) { try { localStorage.setItem('ajo.hubAddress', address.trim()); } catch { /* it is only a convenience */ } }
       ctx.updateSettings({ nwcUrl: url });
     } catch (err) {
       setError((err as Error).message);
@@ -74,15 +74,23 @@ function ConnectCard({ ctx }: { ctx: Ctx }) {
         Send and receive Bitcoin over Lightning from your own wallet. The money stays in <i>your</i> wallet; this page only asks it to
         pay or to make an invoice.
       </p>
-      <form className="card" onSubmit={approve}>
+      <section className="card">
         <h2>Connect your wallet</h2>
-        <label>Your wallet's address
-          <input value={hub} onChange={(e) => setHub(e.target.value)} placeholder={import.meta.env.DEV ? 'localhost:8080' : 'my.albyhub.com'} autoComplete="off" autoCapitalize="none" />
-          <span className="muted small">For an Alby Hub account this is your hub's web address. A window opens in your wallet; you check what is being allowed (set a spending limit if you like) and press Approve.</span>
-        </label>
+        <p className="muted">Using Alby Hub? Connect in one step. A window opens in your wallet where you choose a spending limit and press Approve. Your money stays in your wallet.</p>
+        <button type="button" aria-busy={busy} disabled={busy} onClick={() => approve(HOSTED_WALLET)}>{busy ? 'Waiting for your approval…' : 'Connect with Alby'}</button>
         {error && <p className="error">{error}</p>}
-        <button aria-busy={busy} disabled={busy || !hub.trim()}>{busy ? 'Waiting for your approval…' : 'Connect'}</button>
-      </form>
+      </section>
+
+      <details className="card">
+        <summary>My wallet is at a different address</summary>
+        <form onSubmit={(e) => { e.preventDefault(); void approve(hub); }}>
+          <label>Your wallet's web address (not your Lightning address)
+            <input value={hub} onChange={(e) => setHub(e.target.value)} placeholder={import.meta.env.DEV ? 'localhost:8080' : 'hub.example.com'} autoComplete="off" autoCapitalize="none" />
+            <span className="muted small">The address of the website where you open your wallet, for example the hub you run yourself. A window opens there for you to approve.</span>
+          </label>
+          <button aria-busy={busy} disabled={busy || !hub.trim()}>{busy ? 'Waiting for your approval…' : 'Connect'}</button>
+        </form>
+      </details>
 
       <details className="card">
         <summary>I have a connection code to paste instead</summary>
