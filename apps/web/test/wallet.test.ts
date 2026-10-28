@@ -111,3 +111,14 @@ describe('normalizing what the wallet returns', () => {
     expect(isNwcUrl('https://example.com')).toBe(false);
   });
 });
+
+describe('reminders from the coordinator', () => {
+  it('go away once the member has paid, the round is complete, or they are the one being paid', async () => {
+    const { activeNotices } = await import('../src/lib/notices');
+    const notice = (round: number) => ({ member: 'me', round, stage: 'due' as const, text: 'pay up', at: 1 });
+    const state = (round: number, over: object = {}) => ({ groupId: 'g', round, recipient: 'other', deadline: 1, paid: [] as string[], invoices: {}, status: 'open' as const, ...over });
+    const rounds = new Map([[0, state(0)], [1, state(1, { paid: ['me'] })], [2, state(2, { status: 'complete' })], [3, state(3, { recipient: 'me' })], [4, state(4, { defaulted: ['me'] })]]);
+    const shown = activeNotices([0, 1, 2, 3, 4, 5].map(notice), rounds, 'me').map((n) => n.round);
+    expect(shown).toEqual([0]); // round 5 has no state, so it is not shown either
+  });
+});

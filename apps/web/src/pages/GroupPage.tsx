@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, rec
 import { formatNaira, satsToNaira, withNaira, type Rate } from '../lib/rate';
 import { walletNetwork } from '../lib/onchain/config';
 import { InvoiceQr } from '../components/InvoiceQr';
+import { activeNotices } from '../lib/notices';
 import { PayoutField } from '../components/PayoutField';
 import { PayOnChain } from '../components/PayOnChain';
 import { invoiceStatus } from '../lib/invoice';
@@ -66,7 +67,7 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
         <ActionCard key={current ?? 'done'} ctx={ctx} group={group} groupKey={groupKey} activity={activity} round={current} onPaid={refresh} />
       )}
 
-      {!group.forming && isMember && activity && activity.notices.length > 0 && <NoticesCard notices={activity.notices} />}
+      {!group.forming && isMember && activity && activeNotices(activity.notices, activity.rounds, me).length > 0 && <NoticesCard notices={activeNotices(activity.notices, activity.rounds, me)} />}
       {!group.forming && group.rail !== 'onchain' && isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
 
       {!group.forming && isMember && activity?.addresses[me] && <AssistantCard ctx={ctx} group={group} thread={activity.thread} onAsked={refresh} />}
