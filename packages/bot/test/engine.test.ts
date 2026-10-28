@@ -14,7 +14,7 @@ const fetchInvoice: FetchInvoice = async (_addr, amountSats) => {
     satoshis: amountSats, timestamp: 1_800_000_000,
     tags: [
       { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
-      { tagName: 'description', data: 'ajo' },
+      { tagName: 'expire_time', data: 315_360_000 }, { tagName: 'description', data: 'ajo' },
       { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
     ],
   });
@@ -279,5 +279,119 @@ describe('rounds that have not opened yet', () => {
     const upcoming = { ...openRound(group, 0), opensAt };
     const result = await tick({ group, state: upcoming, addresses, receipts: [], fetchInvoice, now: group.startDate - 3600 });
     expect(result.actions).toEqual([]);
+  });
+});
+
+describe('invoices that expire before the round does', () => {
+  const T0 = 1_800_000_000;
+  const HOUR = 3600;
+  let clock = T0;
+  const made: string[] = [];
+
+  /** An invoice created at the current fake time, valid for `expiry` seconds. */
+  const invoiceAt = (createdAt: number, expiry: number) => {
+    const preimage = bytesToHex(randomBytes(32));
+    const encoded = bolt11.encode({
+      satoshis: 1000, timestamp: createdAt,
+      tags: [
+        { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
+        { tagName: 'expire_time', data: expiry },
+        { tagName: 'description', data: 'ajo' },
+        { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
+      ],
+    });
+    const invoice = bolt11.sign(encoded, nodeKey).paymentRequest!;
+    preimages.set(invoice, preimage);
+    made.push(invoice);
+    return invoice;
+  };
+  const provider = (expiry = HOUR): FetchInvoice => async () => ({ invoice: invoiceAt(clock, expiry), verifyUrl: `https://w.example/verify/${made.length}` });
+  const step = (state: ReturnType<typeof openRound>, at: number, extra: Partial<Parameters<typeof tick>[0]> = {}) => {
+    clock = at;
+    return tick({ group, state, addresses, receipts: [], fetchInvoice: provider(), now: at, ...extra });
+  };
+
+  it('leaves an invoice alone until shortly before it expires, then replaces it', async () => {
+    clock = T0;
+    const first = await step(openRound(group, 0), T0);
+    const old = first.state.invoices[b]!;
+    const quiet = await step(first.state, T0 + 3000); // 50 minutes in: 10 minutes left, margin is 6
+    expect(quiet.state.invoices[b]).toBe(old);
+    expect(quiet.actions.some((x) => x.type === 'invoice-refreshed')).toBe(false);
+
+    const refreshed = await step(quiet.state, T0 + 3300); // 5 minutes left
+    expect(refreshed.state.invoices[b]).not.toBe(old);
+    expect(refreshed.state.superseded?.[b]).toEqual([{ invoice: old, verify: first.state.verify![b] }]);
+    expect(refreshed.actions).toContainEqual({ type: 'invoice-refreshed', payer: b });
+  });
+
+  it('uses a margin of a tenth of the lifetime, at most an hour, so a long invoice is replaced an hour early', async () => {
+    clock = T0;
+    const day = provider(86_400);
+    const first = await tick({ group, state: openRound(group, 0), addresses, receipts: [], fetchInvoice: day, now: T0 });
+    const old = first.state.invoices[b]!;
+    clock = T0 + 22 * HOUR;
+    const early = await tick({ group, state: first.state, addresses, receipts: [], fetchInvoice: day, now: T0 + 22 * HOUR });
+    expect(early.state.invoices[b]).toBe(old);
+    clock = T0 + 23 * HOUR + 60;
+    const late = await tick({ group, state: first.state, addresses, receipts: [], fetchInvoice: day, now: T0 + 23 * HOUR + 60 });
+    expect(late.state.invoices[b]).not.toBe(old);
+  });
+
+  it('still counts a payment made on the invoice that was replaced', async () => {
+    clock = T0;
+    const first = await step(openRound(group, 0), T0);
+    const old = first.state.invoices[b]!;
+    const refreshed = await step(first.state, T0 + 3300);
+    const receipt = { groupId: 'g', round: 0, payer: b, recipient: a, invoice: old, preimage: preimages.get(old)! };
+    const result = await step(refreshed.state, T0 + 3400, { receipts: [receipt] });
+    expect(result.state.paid).toContain(b);
+    // and a payer who has paid is not handed yet another invoice
+    const later = await step(result.state, T0 + 3300 * 2);
+    expect(later.state.superseded?.[b]).toHaveLength(1);
+  });
+
+  it('notices a payment on a replaced invoice through its own verify link', async () => {
+    clock = T0;
+    const first = await step(openRound(group, 0), T0);
+    const old = first.state.invoices[b]!;
+    const oldUrl = first.state.verify![b]!;
+    const refreshed = await step(first.state, T0 + 3300);
+    expect(refreshed.state.verify![b]).not.toBe(oldUrl); // the new invoice has its own link
+    const asked: string[] = [];
+    const checkPayment = async (url: string) => { asked.push(url); return url === oldUrl ? { settled: true, preimage: preimages.get(old) } : { settled: false }; };
+    const result = await step(refreshed.state, T0 + 3400, { checkPayment });
+    expect(asked).toContain(oldUrl);
+    expect(asked).toContain(refreshed.state.verify![b]!);
+    expect(result.state.paid).toContain(b);
+    expect(result.actions).toContainEqual({ type: 'payment-detected', payer: b });
+  });
+
+  it('keeps the old invoice and tries again if getting a new one fails', async () => {
+    clock = T0;
+    const first = await step(openRound(group, 0), T0);
+    const old = first.state.invoices[b]!;
+    const down: FetchInvoice = async () => { throw new Error('provider down'); };
+    const failed = await step(first.state, T0 + 3400, { fetchInvoice: down });
+    expect(failed.state.invoices[b]).toBe(old);
+    expect(failed.actions).toContainEqual({ type: 'invoice-failed', payer: b, reason: 'provider down' });
+    const recovered = await step(failed.state, T0 + 3460);
+    expect(recovered.state.invoices[b]).not.toBe(old);
+  });
+
+  it('remembers only the latest few replaced invoices', async () => {
+    clock = T0;
+    let state = (await step(openRound(group, 0), T0)).state;
+    for (let i = 1; i <= 14; i++) state = (await step(state, T0 + i * 3300)).state;
+    expect(state.superseded?.[b]).toHaveLength(10);
+  });
+
+  it('never replaces an invoice it cannot read, or for a payer who already paid', async () => {
+    const junk = { ...openRound(group, 0), invoices: { [b]: 'lnbc-not-an-invoice', [c]: 'lnbc-not-an-invoice' } };
+    let fetched = 0;
+    const counting: FetchInvoice = async () => { fetched++; return { invoice: invoiceAt(clock, HOUR) }; };
+    const result = await step(junk, T0 + 10 * HOUR, { fetchInvoice: counting });
+    expect(fetched).toBe(0);
+    expect(result.state.invoices[b]).toBe('lnbc-not-an-invoice');
   });
 });

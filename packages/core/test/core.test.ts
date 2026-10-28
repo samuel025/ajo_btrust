@@ -8,6 +8,7 @@ import {
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
+import { isExpired, needsRefresh, parseInvoice as parseInv, refreshMargin } from '../src';
 
 const sk = () => generateSecretKey();
 const [a, b, c, bot] = [sk(), sk(), sk(), sk()];
@@ -294,6 +295,42 @@ describe('join requests and forming groups', () => {
     const read = await parseGroup(finalizeEvent(await groupEvent(approved, key, secretKeyCipher(a)), a), pk(b), secretKeyCipher(b));
     expect(read.group.payoutOrder).toEqual([pk(a), pk(b)]);
     expect(read.key).toEqual(key);
+  });
+});
+
+describe('invoice expiry', () => {
+  const at = 1_800_000_000;
+  const make = (expiry?: number) => {
+    const preimage = bytesToHex(sk());
+    const tags: any[] = [{ tagName: 'payment_hash', data: bytesToHex(sha256(Uint8Array.from(Buffer.from(preimage, 'hex')))) }, { tagName: 'description', data: 'x' }, { tagName: 'payment_secret', data: bytesToHex(sk()) }];
+    if (expiry !== undefined) tags.push({ tagName: 'expire_time', data: expiry });
+    return bolt11.sign(bolt11.encode({ satoshis: 1000, timestamp: at, tags }), nodeKey).paymentRequest!;
+  };
+
+  it('reads when an invoice stops being payable, defaulting to an hour', () => {
+    expect(parseInv(make(86_400))).toMatchObject({ expirySeconds: 86_400, expiresAt: at + 86_400 });
+    expect(parseInv(make())).toMatchObject({ expirySeconds: 3600, expiresAt: at + 3600 });
+  });
+
+  it('is expired exactly from its expiry time', () => {
+    const info = parseInv(make(3600));
+    expect(isExpired(info, at + 3599)).toBe(false);
+    expect(isExpired(info, at + 3600)).toBe(true);
+  });
+
+  it('replaces an invoice a tenth of its life early, at most an hour', () => {
+    expect(refreshMargin(3600)).toBe(360);
+    expect(refreshMargin(86_400)).toBe(3600);
+    expect(refreshMargin(60)).toBe(6);
+    const hour = make(3600), day = make(86_400);
+    expect(needsRefresh(hour, at + 3239)).toBe(false);
+    expect(needsRefresh(hour, at + 3240)).toBe(true);
+    expect(needsRefresh(day, at + 86_400 - 3601)).toBe(false);
+    expect(needsRefresh(day, at + 86_400 - 3600)).toBe(true);
+  });
+
+  it('leaves something that is not an invoice alone', () => {
+    expect(needsRefresh('not an invoice', at + 10_000_000)).toBe(false);
   });
 });
 

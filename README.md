@@ -28,6 +28,9 @@ encrypted Nostr events record the group, the schedule and who has paid. A bot co
    Lightning address and publishes them (encrypted) to the relay.
 4. Each member pays their invoice by scanning a QR code with **any Lightning wallet**, or with one tap
    from a wallet connected to the app, or automatically through an optional budgeted connection.
+   An invoice only lives an hour or a day, but a round lasts a whole period, so the bot **replaces an
+   unpaid member's invoice shortly before it expires** (a tenth of its lifetime early, at most an hour)
+   and keeps honoring a payment made on an older one.
 5. The bot confirms each payment by checking the proof of payment (the preimage) against the invoice.
    When everyone has paid, the round closes.
 6. **Each later round opens when the previous one falls due**, and is due one period after that. If
@@ -223,6 +226,7 @@ Set in `.env` at the repo root (read by the bot and the live tests), or in the e
 | `GEMINI_MODELS` | bot | Comma-separated model list, tried in order. Default `gemini-3.1-flash-lite,gemini-2.5-flash`. |
 | `AI_REMINDER_LANGUAGES` | bot | Languages in which Gemini may write reminders. Default `en`; others use fixed templates. |
 | `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |
+| `LNURL_INVOICE_EXPIRY` | stand-in | Seconds its invoices stay payable. By default the wallet's own (24 hours on Alby Hub). Short values are for testing refresh. |
 | `LNURL_PORT` | stand-in | Port of the Lightning address stand-in. Default 3456. |
 | `VITE_COORDINATOR` | web (build time) | Default coordinator npub for new groups. |
 | `VITE_RELAY` | web (build time) | Relay address. By default the dev server uses `ws://localhost:7777` and a hosted build uses `/relay` on its own domain. |
@@ -245,6 +249,7 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:reputation -w @ajo/web` | relay, web dev server, Chrome | a member who collects and stops paying is recorded as defaulted, shown in the UI | none |
 | `e2e:live -w @ajo/bot` | relay, `NWC_PAYER`, `NWC_RECIPIENT` | a real Lightning payment verified by the bot | 1000 sats |
 | `e2e:live-verify -w @ajo/bot` | same | a payment from outside the app, confirmed by the bot with no receipt | 1000 sats |
+| `e2e:live-refresh -w @ajo/bot` | relay, `NWC_PAYER`, `NWC_RECIPIENT` | with invoices that expire in 90 seconds, the bot replaces one before it dies, the old one is really unpayable, and a payment on the new one is confirmed (about 2 minutes) | 1000 sats |
 | `e2e:live-autopay -w @ajo/bot` | relay, `NWC_AUTOPAY`, `NWC_RECIPIENT` | the bot pays from a budgeted connection and the wallet refuses an overspend | 1000 sats |
 | `e2e:live-ai -w @ajo/bot` | `GEMINI_API_KEY` | what Gemini writes in all four languages | none |
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
@@ -283,6 +288,9 @@ HTTPS, or the bot restarting under load.
 
 - **The collector bears the risk of a default.** There is no pot and no collateral. The default record
   is a deterrent, not compensation. Collateral is the natural next step.
+- **Very short invoices can't be kept alive.** The bot checks every 30 seconds and replaces an invoice a tenth
+  of its life before it expires, so invoices that last only a few minutes can expire between checks. Normal
+  ones (an hour or a day) are replaced with minutes to an hour to spare.
 - **Verify links vary by provider.** The bot can confirm payments from any wallet only when the
   collector's Lightning provider offers an LNURL "verify" link. Alby does; Wallet of Satoshi does not,
   and others are unchecked. Without one, the member pastes the payment proof or pays with a connected wallet.

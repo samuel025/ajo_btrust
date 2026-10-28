@@ -1,5 +1,5 @@
 import {
-  isFinished, isRoundComplete, isUpcoming, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
+  isFinished, isRoundComplete, isUpcoming, needsRefresh, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
   type GroupDef, type Receipt, type ReminderStage, type RoundState,
 } from '@ajo/core';
 
@@ -13,6 +13,7 @@ export type AutoPay = (member: string, invoice: string) => Promise<string | unde
 
 export type Action =
   | { type: 'invoice-failed'; payer: string; reason: string }
+  | { type: 'invoice-refreshed'; payer: string }
   | { type: 'autopaid'; payer: string }
   | { type: 'payment-detected'; payer: string }
   | { type: 'verify-failed'; payer: string; reason: string }
@@ -53,6 +54,8 @@ export interface TickResult {
 }
 
 export const DEFAULT_GRACE_SECONDS = 48 * 3600;
+/** How many replaced invoices are remembered per payer, so a late payment on an old one still counts. */
+const MAX_SUPERSEDED = 10;
 export const DEFAULT_AFTER_SECONDS = 7 * 86_400;
 
 /**
@@ -75,25 +78,14 @@ export async function tick(input: TickInput): Promise<TickResult> {
     paidAt: { ...input.state.paidAt },
   };
 
-  const recipientAddress = input.addresses[state.recipient];
-  for (const payer of unpaid(group, state)) {
-    if (state.invoices[payer]) continue;
-    try {
-      if (!recipientAddress) throw new Error('recipient has no Lightning address');
-      const fetched = await input.fetchInvoice(recipientAddress, group.amountSats);
-      state.invoices[payer] = fetched.invoice;
-      if (fetched.verifyUrl) state.verify = { ...state.verify, [payer]: fetched.verifyUrl };
-    } catch (e) {
-      actions.push({ type: 'invoice-failed', payer, reason: (e as Error).message });
-    }
-  }
+  /** Every invoice a payer could have paid this round: the current one and any replaced ones. */
+  const invoicesOf = (payer: string) => [state.invoices[payer], ...(state.superseded?.[payer] ?? []).map((o) => o.invoice)].filter((i): i is string => !!i);
 
   const accept = (receipt: Receipt): boolean => {
-    const { payer } = receipt;
-    const invoice = state.invoices[payer];
-    if (receipt.round !== state.round || !invoice || state.paid.includes(payer)) return false;
+    const { payer, invoice } = receipt;
+    if (receipt.round !== state.round || state.paid.includes(payer)) return false;
     if (!group.payoutOrder.includes(payer) || payer === state.recipient) return false;
-    if (receipt.invoice !== invoice) return false;
+    if (!invoicesOf(payer).includes(invoice)) return false;
     const result = verifyReceipt(receipt, {
       amountSats: group.amountSats,
       recipientPaymentHash: parseInvoice(invoice).paymentHash,
@@ -113,20 +105,48 @@ export async function tick(input: TickInput): Promise<TickResult> {
   // invoice that was already paid by hand is never paid a second time.
   if (input.checkPayment) {
     for (const payer of unpaid(group, state)) {
-      const url = state.verify?.[payer];
-      const invoice = state.invoices[payer];
-      if (!url || !invoice) continue;
-      try {
-        const status = await input.checkPayment(url);
-        if (!status.settled) continue;
-        if (!status.preimage) throw new Error('the provider says it was paid but gave no proof');
-        const receipt: Receipt = { groupId: group.id, round: state.round, payer, recipient: state.recipient, invoice, preimage: status.preimage };
-        if (!accept(receipt)) throw new Error('the provider reported a payment whose proof does not check out');
-        autoReceipts.push(receipt);
-        actions.push({ type: 'payment-detected', payer });
-      } catch (e) {
-        actions.push({ type: 'verify-failed', payer, reason: (e as Error).message });
+      const links = [
+        { invoice: state.invoices[payer], url: state.verify?.[payer] },
+        ...(state.superseded?.[payer] ?? []).map((o) => ({ invoice: o.invoice, url: o.verify })),
+      ];
+      for (const { invoice, url } of links) {
+        if (!url || !invoice || state.paid.includes(payer)) continue;
+        try {
+          const status = await input.checkPayment(url);
+          if (!status.settled) continue;
+          if (!status.preimage) throw new Error('the provider says it was paid but gave no proof');
+          const receipt: Receipt = { groupId: group.id, round: state.round, payer, recipient: state.recipient, invoice, preimage: status.preimage };
+          if (!accept(receipt)) throw new Error('the provider reported a payment whose proof does not check out');
+          autoReceipts.push(receipt);
+          actions.push({ type: 'payment-detected', payer });
+        } catch (e) {
+          actions.push({ type: 'verify-failed', payer, reason: (e as Error).message });
+        }
       }
+    }
+  }
+
+  // Give each payer who has no invoice one, and replace an invoice that is about to expire. A round lasts
+  // a whole period but an invoice only a day or an hour, so without this a member who pays late would be
+  // handed a dead invoice. The old one is kept: a payment made on it before it expired still counts.
+  const recipientAddress = input.addresses[state.recipient];
+  for (const payer of unpaid(group, state)) {
+    const current = state.invoices[payer];
+    if (current && !needsRefresh(current, now)) continue;
+    try {
+      if (!recipientAddress) throw new Error('recipient has no Lightning address');
+      const fetched = await input.fetchInvoice(recipientAddress, group.amountSats);
+      if (current) {
+        if (fetched.invoice === current) continue;
+        const old = { invoice: current, verify: state.verify?.[payer] };
+        state.superseded = { ...state.superseded, [payer]: [...(state.superseded?.[payer] ?? []), old].slice(-MAX_SUPERSEDED) };
+        actions.push({ type: 'invoice-refreshed', payer });
+      }
+      state.invoices[payer] = fetched.invoice;
+      if (fetched.verifyUrl) state.verify = { ...state.verify, [payer]: fetched.verifyUrl };
+      else if (state.verify?.[payer]) { const { [payer]: _gone, ...rest } = state.verify; state.verify = rest; }
+    } catch (e) {
+      actions.push({ type: 'invoice-failed', payer, reason: (e as Error).message });
     }
   }
 

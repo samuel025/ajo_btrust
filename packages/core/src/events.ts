@@ -42,6 +42,7 @@ export function roundEvent(state: RoundState, key: GroupKey, createdAt = now()):
       opensAt: state.opensAt,
       paid: state.paid,
       invoices: state.invoices,
+      superseded: state.superseded,
       verify: state.verify,
       payoutOrder: state.payoutOrder,
       reminders: state.reminders,

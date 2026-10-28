@@ -5,7 +5,7 @@ import { NWCClient } from '@getalby/sdk';
  * Development stand-in for a Lightning address on a test network: serves LNURL-pay for any
  * name and makes the invoices through one NWC connection (the recipient's wallet).
  */
-export function devLnurlServer(nwcUrl: string, port: number): Promise<Server> {
+export function devLnurlServer(nwcUrl: string, port: number, options: { expirySeconds?: number } = {}): Promise<Server> {
   const wallet = new NWCClient({ nostrWalletConnectUrl: nwcUrl });
   const origin = `http://localhost:${port}`;
   const send = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
@@ -30,7 +30,7 @@ export function devLnurlServer(nwcUrl: string, port: number): Promise<Server> {
         return send(res, 400, { status: 'ERROR', reason: 'invalid amount' });
       }
       try {
-        const { invoice, payment_hash: hash } = await wallet.makeInvoice({ amount, description: 'ajo contribution' });
+        const { invoice, payment_hash: hash } = await wallet.makeInvoice({ amount, description: 'ajo contribution', ...(options.expirySeconds ? { expiry: options.expirySeconds } : {}) });
         return send(res, 200, { pr: invoice, routes: [], verify: `${origin}/verify/${hash}` });
       } catch (e) {
         return send(res, 502, { status: 'ERROR', reason: (e as Error).message });

@@ -80,7 +80,7 @@ describe('runOnce', () => {
         satoshis: 1000, timestamp: 1_800_000_000,
         tags: [
           { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
-          { tagName: 'description', data: 'ajo' },
+          { tagName: 'expire_time', data: 315_360_000 }, { tagName: 'description', data: 'ajo' },
           { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
         ],
       });
@@ -166,7 +166,7 @@ describe('runOnce', () => {
           satoshis: 1000, timestamp: 1_800_000_000,
           tags: [
             { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
-            { tagName: 'description', data: 'ajo' },
+            { tagName: 'expire_time', data: 315_360_000 }, { tagName: 'description', data: 'ajo' },
             { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
           ],
         });
@@ -227,6 +227,50 @@ describe('runOnce', () => {
       const actions = await t.run(started.startedAt + 3600);
       expect(answered).toEqual(['q1']);
       expect(actions).toContainEqual({ type: 'answered', count: 1 });
+    });
+  });
+
+  describe('a whole round with invoices that last a day', () => {
+    it('keeps every member holding a payable invoice for the whole week', async () => {
+      const { default: bolt11 } = await import('bolt11');
+      const { sha256 } = await import('@noble/hashes/sha256');
+      const { bytesToHex, hexToBytes, randomBytes } = await import('@noble/hashes/utils');
+      const { parseInvoice, isExpired } = await import('@ajo/core');
+      const nodeKey = bytesToHex(randomBytes(32));
+      const DAY = 86_400;
+      const started = { ...group, startedAt: group.startDate - 7 * DAY };
+      let clock = started.startedAt;
+      const fetches: number[] = [];
+      const fetchInvoice = async () => {
+        fetches.push(clock);
+        const encoded = bolt11.encode({
+          satoshis: 1000, timestamp: clock,
+          tags: [
+            { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(bytesToHex(randomBytes(32))))) },
+            { tagName: 'expire_time', data: DAY },
+            { tagName: 'description', data: 'ajo' },
+            { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
+          ],
+        });
+        return { invoice: bolt11.sign(encoded, nodeKey).paymentRequest! };
+      };
+      const ledger = memoryLedger();
+      ledger.group = async () => started;
+
+      // the bot runs every few minutes for the whole week; nobody pays
+      let unpayable = 0;
+      for (let t = started.startedAt; t <= started.startDate; t += 600) {
+        clock = t;
+        await runOnce(ledger, ref, fetchInvoice, t);
+        const state = ledger.rounds.get(0)!;
+        const invoice = state.invoices[b];
+        if (invoice && isExpired(parseInvoice(invoice), t)) unpayable++;
+      }
+      expect(unpayable).toBe(0); // at no moment did the member hold an expired invoice
+      // about one new invoice a day, a little early: 7 days means 8 invoices at most 
+      expect(fetches.length).toBeGreaterThanOrEqual(7);
+      expect(fetches.length).toBeLessThanOrEqual(9);
+      expect(ledger.rounds.get(0)!.superseded?.[b]?.length).toBe(fetches.length - 1);
     });
   });
 });

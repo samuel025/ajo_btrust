@@ -24,7 +24,7 @@ const fetchInvoice: FetchInvoice = async (_address, amountSats) => {
     satoshis: amountSats, timestamp: Math.floor(Date.now() / 1000),
     tags: [
       { tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) },
-      { tagName: 'description', data: 'ajo e2e' },
+      { tagName: 'expire_time', data: 315_360_000 }, { tagName: 'description', data: 'ajo e2e' },
       { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) },
     ],
   });

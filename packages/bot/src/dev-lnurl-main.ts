@@ -6,5 +6,6 @@ if (!nwc) {
   console.error('Set NWC_RECIPIENT to the NWC connection of the wallet that should receive payments.');
   process.exit(1);
 }
-await devLnurlServer(nwc, port);
+const expirySeconds = process.env.LNURL_INVOICE_EXPIRY ? Number(process.env.LNURL_INVOICE_EXPIRY) : undefined;
+await devLnurlServer(nwc, port, { expirySeconds });
 console.log(`Lightning addresses of the form <anything>@localhost:${port} now pay into that wallet.`);

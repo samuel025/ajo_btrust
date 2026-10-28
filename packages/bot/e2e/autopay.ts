@@ -20,7 +20,7 @@ const fetchInvoice = async () => {
   const preimage = bytesToHex(randomBytes(32));
   const encoded = bolt11.encode({
     satoshis: 1000, timestamp: Math.floor(Date.now() / 1000),
-    tags: [{ tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) }, { tagName: 'description', data: 'x' }, { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) }],
+    tags: [{ tagName: 'payment_hash', data: bytesToHex(sha256(hexToBytes(preimage))) }, { tagName: 'expire_time', data: 315_360_000 }, { tagName: 'description', data: 'x' }, { tagName: 'payment_secret', data: bytesToHex(randomBytes(32)) }],
   });
   const invoice = bolt11.sign(encoded, nodeKey).paymentRequest!;
   preimages.set(invoice, preimage);

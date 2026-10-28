@@ -62,6 +62,11 @@ export interface RoundState {
   payoutOrder?: string[];
   /** The latest reminder each member has been sent this round, so none is sent twice. */
   reminders?: Record<string, ReminderStage>;
+  /**
+   * Earlier invoices replaced because they were about to expire, with their verify links, by payer. A payment
+   * made on one of these before it expired still counts.
+   */
+  superseded?: Record<string, { invoice: string; verify?: string }[]>;
   /** LNURL "verify" URLs the coordinator can poll to see whether each member's invoice was paid, by member. */
   verify?: Record<string, string>;
   /** When the coordinator first saw each member's payment (unix seconds). Signed by the coordinator, so members can't backdate it. */

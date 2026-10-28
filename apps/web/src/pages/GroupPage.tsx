@@ -8,6 +8,7 @@ import { payInvoice } from '../lib/pay';
 import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress } from '../lib/format';
 import { withNaira, type Rate } from '../lib/rate';
 import { InvoiceQr } from '../components/InvoiceQr';
+import { invoiceStatus } from '../lib/invoice';
 import type { Ctx } from '../App';
 
 /** The first round that isn't complete, or undefined once everyone has been paid. */
@@ -202,6 +203,9 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
 
   const invoice = state.invoices[me];
   const autoConfirm = !!state.verify?.[me];
+  // An invoice that has expired can't be paid; the coordinator replaces it shortly before that happens.
+  const expired = !!invoice && invoiceStatus(invoice, Math.floor(Date.now() / 1000)) === 'expired';
+  const usable = !!invoice && !expired;
 
   const publishReceipt = async (preimage: string) => {
     await publish(ctx.settings.relay, ctx.signer, receiptEvent({
@@ -242,7 +246,8 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       {ctx.rate && <p className="muted small">{rateNote(ctx.rate)}</p>}
       {activity.autopay && <p className="muted">Auto-pay is on, so the coordinator will pay this for you. You can also pay now.</p>}
       {!invoice && <p className="muted">Waiting for the coordinator to get your invoice from the recipient.</p>}
-      {invoice && (
+      {expired && <p className="muted">The invoice has expired. The coordinator issues a fresh one automatically, usually within a minute, and it will appear here.</p>}
+      {usable && (
         <>
           <p><strong>Pay with any Lightning wallet</strong></p>
           <InvoiceQr invoice={invoice} />
@@ -268,7 +273,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
         </>
       )}
       {error && <p className="error">{error}</p>}
-      {invoice && ctx.settings.nwcUrl && (
+      {usable && ctx.settings.nwcUrl && (
         <button disabled={status === 'paying'} onClick={pay}>
           {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
         </button>
