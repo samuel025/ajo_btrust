@@ -53,3 +53,15 @@ export function saveVault(record: VaultRecord): boolean {
 export function removeVault() {
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* nothing to remove */ }
 }
+
+/** The encrypted record as a file's text, for a backup the person can keep. It is useless without the password. */
+export const vaultToFile = (record: VaultRecord) => JSON.stringify(record, null, 2);
+
+/** Reads a backup file; throws a message for the person if it isn't one. */
+export function vaultFromFile(text: string): VaultRecord {
+  let data: Partial<VaultRecord>;
+  try { data = JSON.parse(text); } catch { throw new Error("That isn't a wallet backup file."); }
+  const ok = data && data.v === 1 && typeof data.network === 'string' && ['salt', 'iv', 'data'].every((k) => typeof (data as Record<string, unknown>)[k] === 'string') && Number.isInteger(data.iterations) && data.iterations! > 0;
+  if (!ok) throw new Error("That isn't a wallet backup file.");
+  return { v: 1, network: data.network!, salt: data.salt!, iv: data.iv!, iterations: data.iterations!, data: data.data!, ...(typeof data.address === 'string' ? { address: data.address } : {}) };
+}

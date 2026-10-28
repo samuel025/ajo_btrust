@@ -1,46 +1,46 @@
 # Three-minute demo
 
-A script for recording the demo video, or presenting it live. Everything uses test coins on the Mutinynet test network.
+A script for recording the demo video, or presenting it live. Everything uses test coins on the Mutinynet test network. It shows the app's own Bitcoin wallet paying an ajo, with the coordinator confirming the payment from the blockchain.
 
-## Before you start (5 minutes)
+## Before you start (3 minutes)
 
-Run through this list. Most "it didn't work in the demo" problems are on it.
-
-- [ ] Relay running: `docker ps` shows `ajo-relay`.
-- [ ] Both Alby Hubs are running **and unlocked** (`http://localhost:8080` and `:8081`), with a working channel between them (hub 1 should have outbound balance).
-- [ ] `npm run lnurl -w @ajo/bot` is running (the stand-in Lightning address).
-- [ ] The web app is running: `npm run dev -w @ajo/web` (the "10-minute" testing period is only in this development build).
-- [ ] The bot is running with the **organizer's npub** and `AJO_ALLOW_LOCAL_LNURL=1`. Start the bot *after* you know the organizer's npub (sign in once, copy it), then start it.
-- [ ] `GEMINI_API_KEY` is in `.env` if you want AI answers (the free tier has a small daily quota; templates take over if it runs out).
-- [ ] Two browser windows that don't share data (a normal one and a private one) = the organizer and a member.
-- [ ] Your wallet connection for the member window is ready to paste (`NWC_PAYER` from `.env`).
+1. **Relay running:** `docker ps` shows `ajo-relay`.
+2. **Stop any old bot** (Ctrl+C in its terminal), then run **`npm run demo`**. It starts the web app and the coordinator bot, checks the pieces, and prints the demo wallet's twelve words, its balance and the steps. Leave it running.
+3. **Check the demo wallet has coins.** `npm run demo` prints its balance. Each round needs the contribution (500 sats) plus a network fee (a few hundred sats), so keep **at least 1,500 test sats** in it. Top it up from `faucet.mutinynet.com` or from Alby Hub's on-chain Send, to the address it prints.
+4. **Two browser windows that don't share data** (a normal one and a private one): the organizer and the member.
+5. Optional: `GEMINI_API_KEY` in `.env` for AI answers (the free tier is small; templates take over if it runs out).
+6. **Rehearse once.** A full on-chain round takes 30 to 60 seconds to confirm, so know where you'll fill that time with talking.
 
 ## The script
 
 **0:00, the problem (15 s).** "An ajo is a savings circle: everyone pays in each week, and one person takes the pot in turn. It runs on a treasurer you have to trust. If they disappear, the group loses everything."
 
-**0:15, the idea (15 s).** "Bitcoin Ajo takes the treasurer out of the money's path. Members pay the collector directly over Lightning. A bot runs the calendar but can never touch the money. The records are encrypted Nostr events."
+**0:15, the idea (15 s).** "Bitcoin Ajo takes the treasurer out of the money's path. Members pay the collector directly, with Bitcoin. A bot runs the calendar and checks payments on the blockchain, but it can never touch the money. The records are encrypted Nostr events."
 
-**0:30, create and invite (30 s).** Organizer window: sign in, **New group**, name it, amount 1000 sats. Point at the naira estimate. Choose **Every 10 minutes (testing only)** so the whole cycle fits in the demo. **Create group**, then copy the invite link. Say: "I send this link in the group chat."
+**0:30, the wallet (35 s).** Organizer window: **Create a test key**, **Wallet**, **Create a new wallet**. Show the twelve words: "These words are the wallet. They never leave this device; nobody else can move the coins." Do the three-word check and set a password. Show the receive address and QR code.
 
-**1:00, join in one click (20 s).** Member window: open the link, show **"You're invited…"** and the single **Continue** button, then the Lightning address and language (choose Pidgin). Organizer approves and starts the group.
+**1:05, create and invite (25 s).** **New group**, name it, 500 sats, **Bitcoin on-chain**, **Create group**. **Use my wallet's address** and **Join**. Copy the invite link. Say: "I send this link in the group chat."
 
-**1:20, pay from any wallet (40 s).** Member's group page shows the QR code. Say: "Any Lightning wallet works." Open the member's **Wallet** page, connect the wallet, and **Send**: paste the invoice and pay. (Or pay from Alby Hub's Send screen to show it really is any wallet.) Switch back: the round turns **Complete** with no receipt entered. Say: "The bot checked the payment proof itself."
+**1:30, join in one click (20 s).** Member window (already restored with the demo wallet): open the link, show "paid in Bitcoin on-chain", **Use my wallet's address**, **Ask to join**. Organizer: **Add to group**, **Start the group**.
 
-**2:00, the wallet (25 s).** **Wallet** page: balance, **Receive** (create a QR invoice and have it paid), **History**, and the **budget meter** of a limited connection. Say: "Two wallets. The Bitcoin tab holds its own keys: twelve words, a password, real signed transactions. The Lightning tab connects the user's own Lightning wallet. The money never leaves their control." Show **Bitcoin → Receive** (address and QR) and **History**.
+**1:50, pay (30 s).** Member's group page: **Pay 500 sats from my wallet**. Show the review: amount, network fee, total. Say: "The payment is tagged for this group and round, so the bot knows who paid." **Sign and send**. Show "waiting for the network to put it in a block".
 
-**2:25, the assistant (15 s).** Ask in Pidgin: "wetin dey happen with my turn?" Show the answer. Say: "AI in the language people actually speak."
+**2:20, the bot confirms (25 s).** While it confirms, say: "The bot reads the blockchain, finds the tagged payment and closes the round by itself. No receipt, no invoice." When both windows show **Complete**, show the organizer's wallet: **+500 sats**, and **History**.
 
-**2:40, trust (15 s).** Show a group's **Members** list with each person's record. Say: "Anyone who collects and stops paying is on record."
+**2:45, trust and close (15 s).** Show the **Members** list with each person's record. "Anyone who collects and stops paying is on record. Bitcoin, Nostr and AI, for a savings tradition millions already trust. Thank you."
 
-**2:55, close (5 s).** "Bitcoin, Nostr and AI, for a savings tradition millions already trust. Thank you."
+### Optional extras (if you have more time)
+
+- **Lightning groups:** the same flow with a Lightning invoice QR code that any wallet can pay (needs both Alby Hubs unlocked and `npm run lnurl -w @ajo/bot`).
+- **The assistant:** ask in Pidgin "wetin dey happen with my turn?" and show the answer.
+- **Lightning tab:** connect a wallet over NWC to show balance, receive, send and the budget meter.
 
 ## If something goes wrong on stage
 
 | Problem | Do this |
 |---|---|
-| The QR code doesn't appear | The bot isn't running, or was started with the wrong organizer npub. |
-| Payment sent but the round doesn't complete | Wait up to a minute (the bot checks every 30 seconds). |
-| The wallet page says it can't reach the relay | Alby's relay is slow; wait and retry. Nothing was paid if it said so before the payment. |
+| "Waiting for the coordinator to open this round" for over a minute | The bot isn't running, or an old copy of it is. Stop it, run `npm run demo` again. |
+| The pay button says there isn't enough confirmed Bitcoin | The demo wallet needs coins. Top it up and wait ~30 seconds for the confirmation. |
+| Payment sent but the round doesn't complete | A block takes ~30 seconds on this network; the bot checks every 30 seconds. Wait up to two minutes. |
+| The page shows "not yet in a block" for a long time | The test network is slow or the fee was low. Wait, or show a recorded take. |
 | The AI answer is plain and in English | The free quota ran out, and the template answered. Say so and move on. |
-| Round 2 doesn't open | With the real schedule it opens at the previous due date. The 10-minute testing period is the one to use for demos. |

@@ -135,10 +135,11 @@ export function nostrLedger(relays: string[], secretKey: Uint8Array): Ledger {
 }
 
 /** Groups that name this coordinator and were published by one of the given organizers. */
-export async function discoverGroups(relays: string[], secretKey: Uint8Array, organizers: string[]): Promise<GroupRef[]> {
+/** With `organizers` undefined, every group that names this coordinator is run (demo use only). */
+export async function discoverGroups(relays: string[], secretKey: Uint8Array, organizers: string[] | undefined): Promise<GroupRef[]> {
   const pool = new SimplePool();
   try {
-    const events = await pool.querySync(relays, { kinds: [KIND_GROUP], authors: organizers, '#p': [getPublicKey(secretKey)] });
+    const events = await pool.querySync(relays, { kinds: [KIND_GROUP], ...(organizers ? { authors: organizers } : {}), '#p': [getPublicKey(secretKey)] });
     const refs = new Map<string, GroupRef>();
     for (const event of events) {
       const id = event.tags.find((t) => t[0] === 'd')?.[1];

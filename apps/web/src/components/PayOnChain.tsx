@@ -50,10 +50,16 @@ export function PayOnChain({ group, state, recipientAddress, me, naira }: {
   if (!recipientAddress) return <p className="muted">Waiting for {shortKey(state.recipient)} to add a Bitcoin address.</p>;
 
   if (mine) {
-    return (
+    const link = <a href={`${net.explorer}/tx/${mine.txid}`} target="_blank" rel="noreferrer">View transaction</a>;
+    return mine.confirmations === 0 ? (
       <>
-        <p>✓ Your payment is on the blockchain ({mine.confirmations === 0 ? 'not yet in a block' : `${mine.confirmations} confirmation${mine.confirmations === 1 ? '' : 's'}`}).</p>
-        <p className="muted small">The coordinator marks it paid once it has enough confirmations. <a href={`${net.explorer}/tx/${mine.txid}`} target="_blank" rel="noreferrer">View transaction</a></p>
+        <p><span className="dots" aria-hidden="true" />Sent. Waiting for the network to put your payment in a block…</p>
+        <p className="muted small">This takes about {net.testCoins ? '30 seconds' : '10 minutes or more'}. You can leave this page; the coordinator marks the round paid after 1 confirmation. {link}</p>
+      </>
+    ) : (
+      <>
+        <p>✓ Confirmed ({mine.confirmations} confirmation{mine.confirmations === 1 ? '' : 's'}). The coordinator marks it paid within a minute.</p>
+        <p className="muted small">{link}</p>
       </>
     );
   }

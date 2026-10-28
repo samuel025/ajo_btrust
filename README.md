@@ -40,6 +40,8 @@ The **Lightning** tab does not hold funds: it is an interface to the user's own 
 example Alby Hub), which is where the Lightning node lives. An in-browser Lightning node is not practical
 today, so the app pairs the two: on-chain for keeping, Lightning for paying the circle.
 
+**Want to see it?** After setup, `npm run demo` starts the web app and the coordinator and prints the steps to run an on-chain ajo in two browser windows. The script to present it is in [docs/DEMO.md](docs/DEMO.md).
+
 ## How it works
 
 **People**
@@ -256,6 +258,7 @@ Set in `.env` at the repo root (read by the bot and the live tests), or in the e
 | `GEMINI_MODELS` | bot | Comma-separated model list, tried in order. Default `gemini-3.1-flash-lite,gemini-2.5-flash`. |
 | `AI_REMINDER_LANGUAGES` | bot | Languages in which Gemini may write reminders. Default `en`; others use fixed templates. |
 | `VITE_BTC_NETWORK`, `VITE_ESPLORA_URL`, `VITE_ALLOW_MAINNET` | web | On-chain wallet network (`signet` default, `testnet`), the block explorer API to use, and the mainnet switch (leave off). |
+| `ORGANIZERS=*` | bot | Runs every group that names the bot. For a private demo only (`npm run demo` sets it). |
 | `ESPLORA_URL`, `ONCHAIN_MIN_CONFIRMATIONS` | bot | The blockchain server the coordinator reads for on-chain groups (Mutinynet by default) and the confirmations a payment needs (1). |
 | `ONCHAIN_TEST_MNEMONIC` | `e2e:bitcoin` | A funded signet wallet for the live on-chain test. Run the test once without it and it prints a fresh one and an address to fund. |
 | `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |

@@ -10,7 +10,7 @@ import { setUnlocked, useUnlocked } from '../lib/onchain/session';
 import { scanWallet, type Snapshot } from '../lib/onchain/scan';
 import { checksPass, isValidMnemonic, newMnemonic, normalizeMnemonic, pickChecks, seedFromMnemonic } from '../lib/onchain/seed';
 import { SendError, assertSaneFee, buildTransaction, planSend, type Built, type Plan } from '../lib/onchain/send';
-import { loadVault, openMnemonic, removeVault, saveVault, sealMnemonic, type VaultRecord } from '../lib/onchain/vault';
+import { loadVault, openMnemonic, removeVault, saveVault, sealMnemonic, vaultFromFile, vaultToFile, type VaultRecord } from '../lib/onchain/vault';
 
 /** An on-chain Bitcoin wallet. The keys are made and kept here, in this browser, protected by a password. */
 export function BitcoinWallet({ ctx }: { ctx: Ctx }) {
@@ -31,14 +31,14 @@ export function BitcoinWallet({ ctx }: { ctx: Ctx }) {
     );
   }
   if (vault) return <Unlock net={net} vault={vault} onOpen={setAccount} />;
-  return <Setup net={net} onDone={(record, acct) => { setVault(record); setAccount(acct); }} />;
+  return <Setup net={net} onDone={(record, acct) => { setVault(record); setAccount(acct); }} onRestored={setVault} />;
 }
 
 const Words = ({ phrase }: { phrase: string }) => (
   <ol className="words">{phrase.split(' ').map((w, i) => <li key={i}><span className="muted small">{i + 1}</span> {w}</li>)}</ol>
 );
 
-function Setup({ net, onDone }: { net: NetworkConfig; onDone: (record: VaultRecord, account: Account) => void }) {
+function Setup({ net, onDone, onRestored }: { net: NetworkConfig; onDone: (record: VaultRecord, account: Account) => void; onRestored: (record: VaultRecord) => void }) {
   const [mode, setMode] = useState<'choose' | 'show' | 'verify' | 'restore' | 'password'>('choose');
   const [phrase, setPhrase] = useState('');
   const [typed, setTyped] = useState('');
@@ -88,6 +88,17 @@ function Setup({ net, onDone }: { net: NetworkConfig; onDone: (record: VaultReco
           <p className="muted">The keys are made here and stay on this device, protected by a password. Nobody else, including us, can move your coins. You back it up by writing down twelve words.</p>
           <button onClick={create}>Create a new wallet</button>{' '}
           <button className="secondary" onClick={() => { setError(undefined); setMode('restore'); }}>Restore from twelve words</button>
+          <p className="muted small">Or <label className="filebtn">restore from a backup file<input type="file" accept=".json,application/json" hidden onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              const record = vaultFromFile(await file.text());
+              if (record.network !== net.name) throw new Error(`That backup is for the ${record.network} network, but this app is set to ${net.name}.`);
+              if (!saveVault(record)) throw new Error("This browser won't let the wallet be saved.");
+              onRestored(record);
+            } catch (err) { setError((err as Error).message); }
+          }} /></label></p>
+          {error && <p className="error">{error}</p>}
         </>
       )}
       {mode === 'show' && (
@@ -381,6 +392,20 @@ function Backup({ net, onRemoved }: { net: NetworkConfig; onRemoved: () => void 
             <button disabled={!pw}>Show the words</button>
           </form>
         )}
+      </section>
+      <section className="card">
+        <h2>Backup file</h2>
+        <p className="muted">A file that holds your wallet, locked with your password. Keep a copy somewhere safe (a USB stick, your email). It restores the wallet on another device, but only with the password, so it does not replace the twelve words.</p>
+        <button className="secondary" onClick={() => {
+          const vault = loadVault();
+          if (!vault) return;
+          const url = URL.createObjectURL(new Blob([vaultToFile(vault)], { type: 'application/json' }));
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `ajo-bitcoin-wallet-${net.name}.json`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }}>Download backup file</button>
       </section>
       <section className="card">
         <h2>Remove this wallet from this device</h2>

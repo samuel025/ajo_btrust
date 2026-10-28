@@ -12,6 +12,8 @@ const nsec = process.env.BOT_NSEC;
 const relays = process.env.RELAYS?.split(',');
 const groups = process.env.GROUPS?.split(',').filter(Boolean);
 const organizers = process.env.ORGANIZERS?.split(',').filter(Boolean);
+/** ORGANIZERS=* runs every group that names this bot. Only for a private demo: anyone on the relay can use the bot. */
+const anyOrganizer = organizers?.includes('*') ?? false;
 if (!nsec || !relays || (!groups && !organizers)) {
   console.error(
     'Set BOT_NSEC, RELAYS (comma-separated) and either\n' +
@@ -46,7 +48,7 @@ async function loop() {
       const [author, ...rest] = entry.split(':');
       return { author: toHex(author!), id: rest.join(':') };
     }),
-    ...(organizers ? await discoverGroups(relays!, secretKey, organizers.map(toHex)) : []),
+    ...(organizers ? await discoverGroups(relays!, secretKey, anyOrganizer ? undefined : organizers.map(toHex)) : []),
   ];
   for (const ref of refs) {
     try {
@@ -58,6 +60,7 @@ async function loop() {
   }
 }
 
+if (anyOrganizer) console.warn('WARNING: ORGANIZERS=* , so this bot runs every group that names it. Use this for a private demo only.');
 console.log(`Coordinator running against ${relays.join(', ')}`);
 console.log(writer === templateWriter ? 'Assistant: built-in templates (set GEMINI_API_KEY to use Gemini)' : `Assistant: Gemini (${configuredGeminiModels().join(' → ')}); AI-written reminders in: ${aiReminderLanguages.join(', ')}`);
 await loop();

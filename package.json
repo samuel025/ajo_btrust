@@ -2,8 +2,12 @@
   "name": "bitcoin-ajo",
   "private": true,
   "license": "MIT",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "demo": "tsx --env-file-if-exists=.env scripts/demo.mts"
   }
 }

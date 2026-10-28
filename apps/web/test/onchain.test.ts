@@ -374,3 +374,17 @@ describe('tagged payments', () => {
     expect(built.vsize).toBeLessThanOrEqual(plan.vsize + 2);
   });
 });
+
+describe('backup files', () => {
+  it('a backup file restores the same wallet, and anything else is refused', async () => {
+    const { vaultFromFile, vaultToFile } = await import('../src/lib/onchain/vault');
+    const record = { ...(await sealMnemonic(PHRASE, 'pw pw pw pw', 'signet', 1000)), address: 'tb1qexample' };
+    const back = vaultFromFile(vaultToFile(record));
+    expect(back).toEqual(record);
+    expect(await openMnemonic(back, 'pw pw pw pw')).toBe(PHRASE);
+    await expect(openMnemonic(back, 'wrong')).rejects.toThrow('wrong password');
+    expect(() => vaultFromFile('not json')).toThrow(/backup/);
+    expect(() => vaultFromFile(JSON.stringify({ v: 1, network: 'signet' }))).toThrow(/backup/);
+    expect(() => vaultFromFile(JSON.stringify({ ...record, iterations: 0 }))).toThrow(/backup/);
+  });
+});
