@@ -58,7 +58,7 @@ Funded test wallet (${chain.name}, worthless test coins): ${balance}
   Address: ${wallet.address(0, 0)}
   Faucet:  ${chain.faucet ?? 'n/a'}
 
-Steps (docs/DEMO.md has the script):
+Steps:
   Window A (normal): Create a test key → Wallet → create a Bitcoin wallet → New group
                      (Bitcoin on-chain, 500 sats) → Join with "Use my wallet's address".
   Window B (private): Create a test key → Wallet → Restore from twelve words (the words above)

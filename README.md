@@ -13,9 +13,7 @@ encrypted Nostr events record the group, the schedule and who has paid. A bot co
 ## Hackathon fit
 
 Built for the brief *Bitcoin, Nostr and AI solutions that answer local and regional needs*. The need is
-the **ajo / esusu** savings circle, which depends on a trusted treasurer holding everyone's money. See
-[docs/PITCH.md](docs/PITCH.md) for the short presentation and [docs/DEMO.md](docs/DEMO.md) for a
-three-minute demo script.
+the **ajo / esusu** savings circle, which depends on a trusted treasurer holding everyone's money.
 
 | Requirement | Where it is |
 |---|---|
@@ -23,7 +21,6 @@ three-minute demo script.
 | Answers a local or regional need | Rotating savings groups; **naira** estimates; **Pidgin, Yoruba and Hausa**; one-click join from a shared link; pay from any wallet. |
 | **A Bitcoin/Lightning wallet implementation** | The **Wallet** page has two parts. **Bitcoin (your keys)** is a real on-chain wallet: it makes a 12-word recovery phrase (BIP-39), derives native-SegWit keys (BIP-84), scans the blockchain, builds, signs and broadcasts transactions in the browser (`apps/web/src/lib/onchain/`, `pages/BitcoinWallet.tsx`). **Lightning** connects your own wallet over NWC for invoices, sending and budgets (`lib/wallet.ts`). Tests: `npm run e2e:bitcoin -w @ajo/web`, `npm run e2e:wallet -w @ajo/web`. |
 | A prototype, MVP or PoC | The whole repository: a working MVP, with unit tests and end-to-end tests that make real Lightning payments on a test network. One-command hosting with Docker. |
-| A brief presentation | [docs/PITCH.md](docs/PITCH.md) (text) and the [demo script](docs/DEMO.md). |
 
 The **Bitcoin** tab is a genuine self-custodial wallet: the keys are created and kept in the user's
 browser, locked by a password and encrypted (PBKDF2 + AES-GCM), and the 12 words are the backup. Nobody
@@ -49,7 +46,7 @@ connecting a wallet to a web app elsewhere; pasting a connection code still work
 a browser Lightning extension (WebLN) can also pay a round's invoice with one click. Both rely on the wallet
 supporting Nostr Wallet Connect's approval link or WebLN; try yours with a small amount first.
 
-**Want to see it?** After setup, `npm run demo` starts the web app and the coordinator and prints the steps to run an on-chain ajo in two browser windows. The script to present it is in [docs/DEMO.md](docs/DEMO.md).
+**Want to see it?** After setup, `npm run demo` starts the web app and the coordinator and prints the steps to run an on-chain ajo in two browser windows.
 
 ## How it works
 

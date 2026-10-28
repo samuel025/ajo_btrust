@@ -4,3 +4,5 @@ dist
 .env.local
 Pasted image*.png
 deploy/.env
+docs/PITCH.md
+docs/DEMO.md
