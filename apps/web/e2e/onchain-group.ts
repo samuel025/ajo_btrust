@@ -106,7 +106,7 @@ try {
   await guest.page.screenshot({ path: `${shots}/18-onchain-group-pay.png` });
   check(true, 'the member sees "pay from my wallet" for the round');
 
-  if (funds < AMOUNT + 2000) {
+  if (funds < AMOUNT + 600) {
     // not enough coins: the page must say so plainly
     await guest.page.reload();
     await guest.text('plus the network fee');
