@@ -13,6 +13,8 @@ import { walletNetwork } from '../lib/onchain/config';
 import { InvoiceQr } from '../components/InvoiceQr';
 import { activeNotices } from '../lib/notices';
 import { checkLightningAddress } from '../lib/lnaddress';
+import { Avatar } from '../components/Avatar';
+import { Bitcoin, CircleCheck, Clock, Users, Zap } from 'lucide-react';
 import { PayoutField } from '../components/PayoutField';
 import { PayOnChain } from '../components/PayOnChain';
 import { invoiceStatus } from '../lib/invoice';
@@ -60,9 +62,14 @@ function Loaded({ ctx, published, groupKey, author, refreshGroup }: { ctx: Ctx; 
   return (
     <>
       <h1>{group.name}</h1>
-      <p className="muted">
-        {withNaira(group.amountSats, ctx.rate)} per round · {frequencyLabel[group.frequency]} · {group.payoutOrder.length} members{group.rail === 'onchain' ? ' · paid in Bitcoin on-chain' : ''}
-      </p>
+      <p className="lead num">{withNaira(group.amountSats, ctx.rate)} per round</p>
+      <div className="page-meta">
+        <span className="badge"><Clock size={14} aria-hidden="true" />{frequencyLabel[group.frequency]}</span>
+        <span className="badge"><Users size={14} aria-hidden="true" />{group.payoutOrder.length} {group.payoutOrder.length === 1 ? 'member' : 'members'}</span>
+        {group.rail === 'onchain'
+          ? <span className="badge info"><Bitcoin size={14} aria-hidden="true" />Paid in Bitcoin on-chain</span>
+          : <span className="badge warn"><Zap size={14} aria-hidden="true" />Paid over Lightning</span>}
+      </div>
 
       {!isMember && <p className="error">You're not a member of this group.</p>}
       {group.forming && isOrganizer && activity && <FormingCard ctx={ctx} group={published} groupKey={groupKey} requests={activity.requests} onChanged={refresh} />}
@@ -89,10 +96,10 @@ function Loaded({ ctx, published, groupKey, author, refreshGroup }: { ctx: Ctx; 
               const owing = group.payoutOrder.length - 1;
               return (
                 <tr key={n} className={n === current ? 'current' : undefined}>
-                  <td>{n + 1}</td>
-                  <td>{shortKey(recipient)}{recipient === me && <span className="tag">you</span>}</td>
-                  <td>{formatDateTime(state?.deadline ?? roundDeadline(group, n))}</td>
-                  <td>{paidCell(group, n, state, owing)}</td>
+                  <td data-label="Round">{n + 1}</td>
+                  <td data-label="Recipient">{shortKey(recipient)}{recipient === me && <span className="tag">you</span>}</td>
+                  <td data-label="Due">{formatDateTime(state?.deadline ?? roundDeadline(group, n))}</td>
+                  <td data-label="Paid">{paidBadge(paidCell(group, n, state, owing))}</td>
                 </tr>
               );
             })}
@@ -107,9 +114,12 @@ function Loaded({ ctx, published, groupKey, author, refreshGroup }: { ctx: Ctx; 
           const r = record?.[m];
           return (
             <li key={m}>
-              <span>
-                {shortKey(m)}{m === me && <span className="tag">you</span>}
-                <div className="muted small">{activity?.addresses[m] ?? 'not joined yet'}</div>
+              <span className="person">
+                <Avatar pubkey={m} />
+                <span>
+                  {shortKey(m)}{m === me && <span className="tag">you</span>}
+                  <div className="muted small">{activity?.addresses[m] ?? 'not joined yet'}</div>
+                </span>
               </span>
               <span className="right small">
                 {r && <div className={r.defaulted ? 'warn' : 'muted'}>{recordText(r)}</div>}
@@ -121,6 +131,13 @@ function Loaded({ ctx, published, groupKey, author, refreshGroup }: { ctx: Ctx; 
       </ul>
     </>
   );
+}
+
+/** The "Paid" cell as a coloured badge: green when complete, blue when not open yet, amber while people are paying. */
+function paidBadge(text: string) {
+  if (text.startsWith('Complete')) return <span className="badge success"><CircleCheck size={14} aria-hidden="true" />{text}</span>;
+  if (text.startsWith('Opens')) return <span className="badge info"><Clock size={14} aria-hidden="true" />{text}</span>;
+  return <span className="badge warn num">{text}</span>;
 }
 
 /** What the "Paid" column says about a round: done, in progress, or when it opens. */
@@ -478,20 +495,22 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
   ctx: Ctx; group: GroupDef; groupKey: GroupKey; requests: GroupActivity['requests']; onChanged: () => void | Promise<void>;
 }) {
   const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  // Which action is working, so only that button shows the spinner and its "…ing" label; both stay disabled meanwhile.
+  const [working, setWorking] = useState<'add' | 'start'>();
+  const busy = working !== undefined;
   const [copied, setCopied] = useState(false);
   const link = inviteLink({ author: ctx.signer.pubkey, id: group.id, name: group.name, amountSats: group.amountSats, frequency: group.frequency, rail: group.rail });
 
-  const update = async (next: GroupDef) => {
+  const update = async (next: GroupDef, action: 'add' | 'start') => {
     setError(undefined);
-    setBusy(true);
+    setWorking(action);
     try {
       await publishGroupUpdate(ctx.settings.relay, ctx.signer, next, groupKey);
       await onChanged();
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setWorking(undefined);
     }
   };
 
@@ -504,7 +523,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
   const start = () => {
     const nowMs = Date.now();
     const startDate = group.frequency === 'testing' ? Math.floor(nowMs / 1000) + 600 : Math.max(group.startDate, nextNineAm(nowMs));
-    return update({ ...group, forming: undefined, startedAt: Math.floor(nowMs / 1000), startDate });
+    return update({ ...group, forming: undefined, startedAt: Math.floor(nowMs / 1000), startDate }, 'start');
   };
 
   return (
@@ -522,7 +541,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
         {requests.filter((r) => !group.payoutOrder.includes(r.member)).map((r) => (
           <li key={r.id}>
             <span>{shortKey(r.member)}<div className="muted small">{r.lightningAddress || r.bitcoinAddress}</div></span>
-            <button aria-busy={busy} disabled={busy} onClick={() => (group.payoutOrder.includes(r.member) ? undefined : update({ ...group, payoutOrder: [...group.payoutOrder, r.member] }))}>{busy ? 'Adding…' : 'Add to group'}</button>
+            <button aria-busy={working === 'add'} disabled={busy} onClick={() => (group.payoutOrder.includes(r.member) ? undefined : update({ ...group, payoutOrder: [...group.payoutOrder, r.member] }, 'add'))}>{working === 'add' ? 'Adding…' : 'Add to group'}</button>
           </li>
         ))}
       </ul>
@@ -530,7 +549,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
       <h2>Start the group</h2>
       <p className="muted small">{group.payoutOrder.length} in the group so far, in the order they were added (the first is paid first). Starting fixes who is in and opens round 1 for payment right away. Each later round opens when the one before it is due. You can't add people after.</p>
       {error && <p className="error">{error}</p>}
-      <button aria-busy={busy} disabled={busy || group.payoutOrder.length < 2} onClick={start}>{busy ? 'Starting…' : 'Start the group'}</button>
+      <button aria-busy={working === 'start'} disabled={busy || group.payoutOrder.length < 2} onClick={start}>{working === 'start' ? 'Starting…' : 'Start the group'}</button>
       {group.payoutOrder.length < 2 && <p className="muted small">You need at least two people to start.</p>}
     </section>
   );

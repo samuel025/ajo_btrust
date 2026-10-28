@@ -148,7 +148,7 @@ function Connected({ ctx, url }: { ctx: Ctx; url: string }) {
 
   return (
     <>
-      <section className="card">
+      <section className="card hero">
         <div className="row">
           <div>
             <div className="muted small">{!info ? 'connecting…' : [info.alias, info.network && (testNetwork ? `${info.network} (test coins)` : info.network)].filter(Boolean).join(' · ') || 'wallet connected'}</div>

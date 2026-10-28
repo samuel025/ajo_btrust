@@ -197,7 +197,7 @@ function Unlocked({ ctx, net, account, onLock, onRemoved }: { ctx: Ctx; net: Net
 
   return (
     <>
-      <section className="card">
+      <section className="card hero">
         <div className="row">
           <div>
             <div className="muted small">{net.testCoins ? `${net.name} test network, worthless test coins` : 'Bitcoin'}</div>

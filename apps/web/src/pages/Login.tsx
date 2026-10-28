@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { BrandMark } from '../components/BrandMark';
 import { extensionSigner, hasExtension, localSigner, type Signer } from '../lib/signer';
 
-export function Login({ onSignedIn, banner }: { onSignedIn: (s: Signer) => void; banner?: React.ReactNode }) {
+export function Login({ onSignedIn, banner, themeToggle }: { onSignedIn: (s: Signer) => void; banner?: React.ReactNode; themeToggle?: React.ReactNode }) {
   const [error, setError] = useState<string>();
   const [nsec, setNsec] = useState('');
   const [busy, setBusy] = useState(false);
@@ -16,7 +17,9 @@ export function Login({ onSignedIn, banner }: { onSignedIn: (s: Signer) => void;
   // Someone arriving from an invite link just wants to continue; the Nostr details can wait.
   if (banner) {
     return (
-      <main className="narrow">
+      <main className="narrow auth">
+        <div className="auth-top">{themeToggle}</div>
+        <div className="auth-mark"><BrandMark size={56} /></div>
         <h1>Bitcoin Ajo</h1>
         {banner}
         <section className="card">
@@ -40,7 +43,9 @@ export function Login({ onSignedIn, banner }: { onSignedIn: (s: Signer) => void;
   }
 
   return (
-    <main className="narrow">
+    <main className="narrow auth">
+      <div className="auth-top">{themeToggle}</div>
+      <div className="auth-mark"><BrandMark size={56} /></div>
       <h1>Bitcoin Ajo</h1>
       {banner}
       <p className="lead">
