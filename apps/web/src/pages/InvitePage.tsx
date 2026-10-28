@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LANGUAGES, type Language } from '@ajo/core';
 import type { Ctx } from '../App';
 import { frequencyLabel, shortKey, validateAddress, validateBitcoinAddress } from '../lib/format';
+import { checkLightningAddress } from '../lib/lnaddress';
 import { PayoutField } from '../components/PayoutField';
 import type { Invite } from '../lib/invite';
 import { usePoll } from '../lib/hooks';
@@ -18,6 +19,7 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
   const [sent, setSent] = useState(() => !!loadPending(ref));
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [unsure, setUnsure] = useState(false); // the address couldn't be checked; the person may continue
 
   // Once the organizer approves, the group becomes readable to this person: go to it.
   const { data: group } = usePoll(() => loadGroupIfMember(ctx.settings.relay, ref, ctx.signer), [ctx.settings.relay, invite.author, invite.id], 3000);
@@ -33,6 +35,11 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
     setError(undefined);
     setBusy(true);
     try {
+      if (!onchain && !unsure) {
+        const check = await checkLightningAddress(address, invite.amountSats);
+        if (check.kind === 'bad') { setError(check.message); setBusy(false); return; }
+        if (check.kind === 'unreachable') { setError(check.message); setUnsure(true); setBusy(false); return; }
+      }
       const entered = onchain ? { lightningAddress: '', bitcoinAddress: address.trim() } : { lightningAddress: address.trim() };
       await sendJoinRequest(ctx.settings.relay, ctx.signer, ref, { ...entered, language });
       savePending(ref, { ...entered, language });
@@ -62,14 +69,14 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
         <form className="card" onSubmit={ask}>
           <h2>Ask to join</h2>
           <p className="muted">Members pay you at {invite.rail === 'onchain' ? 'this Bitcoin address' : 'your Lightning address'} when it's your turn to receive. Only the organizer sees this.</p>
-          <PayoutField rail={invite.rail} value={address} onChange={setAddress} groupId={invite.id} />
+          <PayoutField rail={invite.rail} value={address} onChange={(v) => { setAddress(v); setUnsure(false); }} groupId={invite.id} />
           <label>Language for reminders
             <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
               {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
             </select>
           </label>
           {error && <p className="error">{error}</p>}
-          <button aria-busy={busy} disabled={busy}>{busy ? 'Sending…' : 'Ask to join'}</button>
+          <button aria-busy={busy} disabled={busy}>{busy ? 'Checking…' : unsure ? 'Ask to join anyway' : 'Ask to join'}</button>
         </form>
       )}
     </div>

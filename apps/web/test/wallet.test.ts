@@ -159,3 +159,30 @@ describe('connecting a wallet', () => {
     delete g.window;
   });
 });
+
+describe('checking a Lightning address when joining', () => {
+  const answer = (status: number, body: unknown) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+  const good = { tag: 'payRequest', callback: 'https://x.test/pay/amaka', minSendable: 1000, maxSendable: 1_000_000_000 };
+
+  it('accepts an address that answers like a Lightning provider', async () => {
+    const { checkLightningAddress } = await import('../src/lib/lnaddress');
+    expect(await checkLightningAddress('amaka@x.test', 1000, answer(200, good))).toEqual({ kind: 'ok' });
+  });
+
+  it('says plainly when the address is wrong, and when it cannot take the amount', async () => {
+    const { checkLightningAddress } = await import('../src/lib/lnaddress');
+    expect(await checkLightningAddress('nobody@x.test', 1000, answer(404, {}))).toMatchObject({ kind: 'bad', message: expect.stringContaining('no such address') });
+    expect(await checkLightningAddress('a@x.test', 1000, answer(500, {}))).toMatchObject({ kind: 'bad', message: expect.stringContaining('500') });
+    expect(await checkLightningAddress('a@x.test', 1000, answer(200, { status: 'ERROR', reason: 'not found' }))).toMatchObject({ kind: 'bad', message: expect.stringContaining('not found') });
+    expect(await checkLightningAddress('a@x.test', 1000, answer(200, { hello: 'world' }))).toMatchObject({ kind: 'bad' });
+    expect(await checkLightningAddress('a@x.test', 1000, async () => ({ ok: true, status: 200, json: async () => { throw new Error('not json'); } }))).toMatchObject({ kind: 'bad' });
+    expect(await checkLightningAddress('a@x.test', 50, answer(200, { ...good, minSendable: 100_000 }))).toMatchObject({ kind: 'bad', message: expect.stringContaining('accepts 100 to') });
+    expect(await checkLightningAddress('not-an-address', 1000, answer(200, good))).toMatchObject({ kind: 'bad' });
+  });
+
+  it('lets the person continue when the lookup got no answer, since that can be the browser and not the address', async () => {
+    const { checkLightningAddress } = await import('../src/lib/lnaddress');
+    const refused = async () => { throw new TypeError('Failed to fetch'); };
+    expect(await checkLightningAddress('ada@localhos:5432', 1000, refused)).toMatchObject({ kind: 'unreachable', message: expect.stringContaining('typo') });
+  });
+});

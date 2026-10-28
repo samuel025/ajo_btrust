@@ -11,6 +11,7 @@ import { formatNaira, satsToNaira, withNaira, type Rate } from '../lib/rate';
 import { walletNetwork } from '../lib/onchain/config';
 import { InvoiceQr } from '../components/InvoiceQr';
 import { activeNotices } from '../lib/notices';
+import { checkLightningAddress } from '../lib/lnaddress';
 import { PayoutField } from '../components/PayoutField';
 import { PayOnChain } from '../components/PayOnChain';
 import { invoiceStatus } from '../lib/invoice';
@@ -133,6 +134,7 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
   const [language, setLanguage] = useState<Language>('en');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [unsure, setUnsure] = useState(false); // the address couldn't be checked; the person may continue
 
   const join = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,6 +143,11 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
     if (problem) return setError(problem);
     setBusy(true);
     try {
+      if (!onchain && !unsure) {
+        const check = await checkLightningAddress(address, group.amountSats);
+        if (check.kind === 'bad') { setError(check.message); setBusy(false); return; }
+        if (check.kind === 'unreachable') { setError(check.message); setUnsure(true); setBusy(false); return; }
+      }
       await publish(ctx.settings.relay, ctx.signer, joinEvent({ groupId: group.id, lightningAddress: onchain ? '' : address.trim(), bitcoinAddress: onchain ? address.trim() : undefined, language }, groupKey));
       onDone();
     } catch (err) {
@@ -154,14 +161,14 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
     <form className="card" onSubmit={join}>
       <h2>Join this group</h2>
       <p className="muted">By joining you agree to pay {withNaira(group.amountSats, ctx.rate)} each round. Members pay you at this {group.rail === 'onchain' ? 'Bitcoin' : 'Lightning'} address when it's your turn.</p>
-      <PayoutField rail={group.rail} value={address} onChange={setAddress} groupId={group.id} />
+      <PayoutField rail={group.rail} value={address} onChange={(v) => { setAddress(v); setUnsure(false); }} groupId={group.id} />
       <label>Language for reminders
         <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
           {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
         </select>
       </label>
       {error && <p className="error">{error}</p>}
-      <button aria-busy={busy} disabled={busy}>{busy ? 'Joining…' : 'Join'}</button>
+      <button aria-busy={busy} disabled={busy}>{busy ? 'Joining…' : unsure ? 'Join anyway' : 'Join'}</button>
     </form>
   );
 }
