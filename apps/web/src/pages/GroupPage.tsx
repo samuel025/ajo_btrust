@@ -159,7 +159,7 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
         </select>
       </label>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy}>{busy ? 'Joining…' : 'Join'}</button>
+      <button aria-busy={busy} disabled={busy}>{busy ? 'Joining…' : 'Join'}</button>
     </form>
   );
 }
@@ -277,7 +277,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
               <label>Payment proof (preimage)
                 <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="64 letters and numbers" autoComplete="off" />
               </label>
-              <button type="button" className="secondary" disabled={!proof.trim() || status === 'paying'} onClick={submitProof}>Submit proof</button>
+              <button type="button" className="secondary" aria-busy={status === 'paying'} disabled={!proof.trim() || status === 'paying'} onClick={submitProof}>Submit proof</button>
             </details>
           )}
           {ctx.settings.nwcUrl ? (
@@ -289,7 +289,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       )}
       {error && <p className="error">{error}</p>}
       {usable && ctx.settings.nwcUrl && (
-        <button disabled={status === 'paying'} onClick={pay}>
+        <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={pay}>
           {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
         </button>
       )}
@@ -339,7 +339,7 @@ function AutopayCard({ ctx, group, enabled, onChanged }: { ctx: Ctx; group: Grou
         <input type="password" autoComplete="off" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="nostr+walletconnect://…" />
       </label>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy || !url} onClick={() => save(url.trim())}>Turn on auto-pay</button>
+      <button aria-busy={busy} disabled={busy || !url} onClick={() => save(url.trim())}>{busy ? 'Turning on…' : 'Turn on auto-pay'}</button>
     </details>
   );
 }
@@ -392,7 +392,7 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
       ))}
       <form onSubmit={ask} className="askrow">
         <input value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Ask a question" />
-        <button disabled={busy || !text.trim()}>Ask</button>
+        <button aria-busy={busy} disabled={busy || !text.trim()}>{busy ? 'Asking…' : 'Ask'}</button>
       </form>
       {error && <p className="error">{error}</p>}
     </section>
@@ -453,7 +453,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
         {requests.map((r) => (
           <li key={r.id}>
             <span>{shortKey(r.member)}<div className="muted small">{r.lightningAddress || r.bitcoinAddress}</div></span>
-            <button disabled={busy} onClick={() => update({ ...group, payoutOrder: [...group.payoutOrder, r.member] })}>Add to group</button>
+            <button aria-busy={busy} disabled={busy} onClick={() => update({ ...group, payoutOrder: [...group.payoutOrder, r.member] })}>{busy ? 'Adding…' : 'Add to group'}</button>
           </li>
         ))}
       </ul>
@@ -461,7 +461,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
       <h2>Start the group</h2>
       <p className="muted small">{group.payoutOrder.length} in the group so far, in the order they were added (the first is paid first). Starting fixes who is in and opens round 1 for payment right away. Each later round opens when the one before it is due. You can't add people after.</p>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy || group.payoutOrder.length < 2} onClick={start}>Start the group</button>
+      <button aria-busy={busy} disabled={busy || group.payoutOrder.length < 2} onClick={start}>{busy ? 'Starting…' : 'Start the group'}</button>
       {group.payoutOrder.length < 2 && <p className="muted small">You need at least two people to start.</p>}
     </section>
   );

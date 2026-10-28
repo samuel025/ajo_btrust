@@ -67,7 +67,7 @@ function ConnectCard({ ctx }: { ctx: Ctx }) {
           <span className="muted small">Kept in this browser only. Treat it like a password.</span>
         </label>
         {error && <p className="error">{error}</p>}
-        <button disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Connect'}</button>
+        <button aria-busy={busy} disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Connect'}</button>
       </section>
     </form>
   );
@@ -122,7 +122,7 @@ function Connected({ ctx, url }: { ctx: Ctx; url: string }) {
             {testNetwork && <div className="muted small">Test coins have no value, so no naira estimate is shown.</div>}
           </div>
           <div className="right">
-            <button className="secondary" disabled={loading} onClick={refresh}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+            <button className="secondary" aria-busy={loading} disabled={loading} onClick={refresh}>{loading ? 'Refreshing…' : 'Refresh'}</button>
           </div>
         </div>
         {info?.budget && <BudgetMeter budget={info.budget} />}
@@ -231,7 +231,7 @@ function Receive({ url, ctx, onDone }: { url: string; ctx: Ctx; onDone: () => vo
         <input value={note} maxLength={120} onChange={(e) => setNote(e.target.value)} placeholder="Ajo contribution, market sale…" />
       </label>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy}>{busy ? 'Creating…' : 'Create invoice'}</button>
+      <button aria-busy={busy} disabled={busy}>{busy ? 'Creating…' : 'Create invoice'}</button>
     </form>
   );
 }
@@ -312,10 +312,10 @@ function Send({ url, ctx, onDone }: { url: string; ctx: Ctx; onDone: () => void 
           {ctx.rate && amountOk && <span className="muted small">≈ {formatNaira(satsToNaira(sats, ctx.rate.ngnPerBtc))} today</span>}
         </label>
       )}
-      {target.kind === 'address' && !invoice && <button disabled={busy || !amountOk} onClick={prepare}>{busy ? 'Contacting…' : 'Get invoice'}</button>}
+      {target.kind === 'address' && !invoice && <button aria-busy={busy} disabled={busy || !amountOk} onClick={prepare}>{busy ? 'Contacting…' : 'Get invoice'}</button>}
       {invoice && target.kind === 'address' && <p>Pay <b>{withNaira(sats, ctx.rate)}</b> to <b>{target.address}</b>.</p>}
       {error && <p className="error">{error}</p>}
-      {ready && <button disabled={busy} onClick={pay}>{busy ? 'Paying…' : `Pay ${payAmount !== undefined ? payAmount.toLocaleString('en') + ' sats' : ''}`.trim()}</button>}
+      {ready && <button aria-busy={busy} disabled={busy} onClick={pay}>{busy ? 'Paying…' : `Pay ${payAmount !== undefined ? payAmount.toLocaleString('en') + ' sats' : ''}`.trim()}</button>}
       <p className="muted small">A payment can't be undone. If this page says it didn't hear back, check History before trying again.</p>
     </section>
   );

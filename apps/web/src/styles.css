@@ -94,3 +94,9 @@ code.address { word-break: break-all; font-size: .85rem; }
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; }
 dl.kv dt { color: var(--muted); }
 dl.kv dd { margin: 0; }
+
+/* A button that is working shows a spinner, so it is clear the click was received. */
+button[aria-busy="true"] { cursor: progress; opacity: .85; }
+button[aria-busy="true"]::before { content: ''; display: inline-block; width: .85em; height: .85em; margin-right: .55em; vertical-align: -.1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ajo-spin .7s linear infinite; }
+@keyframes ajo-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::before { animation-duration: 2.4s; } }

@@ -74,7 +74,7 @@ export function PayOnChain({ group, state, recipientAddress, me, naira }: {
         <p>Unlock your Bitcoin wallet to pay.</p>
         <label>Wallet password<input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
         {error && <p className="error">{error}</p>}
-        <button disabled={busy || !pw}>{busy ? 'Unlocking…' : 'Unlock'}</button>
+        <button aria-busy={busy} disabled={busy || !pw}>{busy ? 'Unlocking…' : 'Unlock'}</button>
       </form>
     );
   }
@@ -123,7 +123,7 @@ export function PayOnChain({ group, state, recipientAddress, me, naira }: {
         </dl>
         <p className="muted small">The payment is marked with a tag for this group and round, so the coordinator can tell it is yours. A Bitcoin payment can't be undone.</p>
         {error && <p className="error">{error}</p>}
-        <button disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Sign and send'}</button>{' '}
+        <button aria-busy={busy} disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Sign and send'}</button>{' '}
         <button className="secondary" disabled={busy} onClick={() => setReview(undefined)}>Cancel</button>
       </>
     );
@@ -132,7 +132,7 @@ export function PayOnChain({ group, state, recipientAddress, me, naira }: {
     <>
       <p className="muted small">Your wallet holds {snap ? formatSats(snap.confirmedSats) : '…'}.{net.testCoins && net.faucet ? <> Need test coins? <a href={net.faucet} target="_blank" rel="noreferrer">{net.faucet.replace('https://', '')}</a>.</> : null}</p>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy || !snap} onClick={prepare}>{busy ? 'Preparing…' : `Pay ${formatSats(group.amountSats)} from my wallet`}</button>
+      <button aria-busy={busy} disabled={busy || !snap} onClick={prepare}>{busy ? 'Preparing…' : `Pay ${formatSats(group.amountSats)} from my wallet`}</button>
     </>
   );
 }

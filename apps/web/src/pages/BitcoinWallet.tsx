@@ -75,7 +75,7 @@ function Setup({ net, onDone }: { net: NetworkConfig; onDone: (record: VaultReco
       <label>Password<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
       <label>Again<input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></label>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy}>{busy ? 'Saving…' : 'Create wallet'}</button>
+      <button aria-busy={busy} disabled={busy}>{busy ? 'Saving…' : 'Create wallet'}</button>
     </form>
   );
 
@@ -149,7 +149,7 @@ function Unlock({ net, vault, onOpen }: { net: NetworkConfig; vault: VaultRecord
       <h2>Unlock your wallet</h2>
       <label>Password<input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy || !pw}>{busy ? 'Unlocking…' : 'Unlock'}</button>
+      <button aria-busy={busy} disabled={busy || !pw}>{busy ? 'Unlocking…' : 'Unlock'}</button>
     </form>
   );
 }
@@ -188,7 +188,7 @@ function Unlocked({ ctx, net, account, onLock, onRemoved }: { ctx: Ctx; net: Net
             {snap && snap.pendingSats > 0 && <div className="muted small">+ {snap.pendingSats.toLocaleString('en')} sats waiting for a confirmation</div>}
           </div>
           <div className="right">
-            <button className="secondary" disabled={loading} onClick={refresh}>{loading ? 'Refreshing…' : 'Refresh'}</button>{' '}
+            <button className="secondary" aria-busy={loading} disabled={loading} onClick={refresh}>{loading ? 'Refreshing…' : 'Refresh'}</button>{' '}
             <button className="secondary" onClick={onLock}>Lock</button>
           </div>
         </div>
@@ -300,7 +300,7 @@ function SendOnChain({ net, account, api, snap, naira, onSent }: { net: NetworkC
         </dl>
         <p className="muted small">A Bitcoin payment can't be undone. Check the address carefully.</p>
         {error && <p className="error">{error}</p>}
-        <button disabled={busy} onClick={broadcast}>{busy ? 'Sending…' : 'Sign and send'}</button>{' '}
+        <button aria-busy={busy} disabled={busy} onClick={broadcast}>{busy ? 'Sending…' : 'Sign and send'}</button>{' '}
         <button className="secondary" disabled={busy} onClick={() => { setReview(undefined); setError(undefined); }}>Edit</button>
       </section>
     );

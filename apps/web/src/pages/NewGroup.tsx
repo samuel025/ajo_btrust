@@ -2,11 +2,15 @@ import { useState } from 'react';
 import { nip19 } from 'nostr-tools';
 import { createGroupKey, groupEvent, type Frequency, type GroupRail } from '@ajo/core';
 import { publish } from '../lib/ledger';
-import { parseMembers, toHexPubkey } from '../lib/format';
+import { nextNineAm, parseMembers, toHexPubkey } from '../lib/format';
 import { formatNaira, nairaToSats, satsToNaira } from '../lib/rate';
 import type { Ctx } from '../App';
 
-const inAWeek = () => new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+/** Today's date in the person's own timezone, as the date field wants it (yyyy-mm-dd). */
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 export function NewGroup({ ctx }: { ctx: Ctx }) {
   const me = nip19.npubEncode(ctx.signer.pubkey);
@@ -14,7 +18,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
   const [amount, setAmount] = useState('50000');
   const [frequency, setFrequency] = useState<Frequency>('weekly');
   const [rail, setRail] = useState<GroupRail>('lightning');
-  const [start, setStart] = useState(inAWeek);
+  const [start, setStart] = useState(today);
   const [coordinator, setCoordinator] = useState(ctx.settings.coordinator);
   const [members, setMembers] = useState(`${me}\n`);
   // Inviting by link is the easy path; pasting npubs is for organizers who already have them.
@@ -38,7 +42,8 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
       await publish(ctx.settings.relay, ctx.signer, await groupEvent({
         id, name: name.trim(), amountSats, frequency, payoutOrder,
         // The first round is due at 9:00 on the chosen day. The 10-minute testing period ignores the date.
-        startDate: frequency === 'testing' ? Math.floor(Date.now() / 1000) + 600 : Math.floor(new Date(`${start}T09:00:00`).getTime() / 1000),
+        // If 9:00 on that day has already passed (as it has for today, later in the day), the first round is due at the next 9:00.
+        startDate: frequency === 'testing' ? Math.floor(Date.now() / 1000) + 600 : Math.max(Math.floor(new Date(`${start}T09:00:00`).getTime() / 1000), nextNineAm(Date.now())),
         // With a list of members the group starts now; with invite links it starts when the organizer says so.
         startedAt: mode === 'npubs' ? Math.floor(Date.now() / 1000) : undefined,
         coordinator: toHexPubkey(coordinator),
@@ -82,7 +87,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
         </label>
       )}
       <label>First round is due
-        <input type="date" required value={start} onChange={(e) => setStart(e.target.value)} />
+        <input type="date" required min={today()} value={start} onChange={(e) => setStart(e.target.value)} />
       </label>
       <fieldset className="mode">
         <legend>How do members pay?</legend>
@@ -105,7 +110,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
         <span className="muted small">The bot that runs rounds and checks payments for this group.</span>
       </label>
       {error && <p className="error">{error}</p>}
-      <button disabled={busy}>{busy ? 'Publishing…' : 'Create group'}</button>
+      <button aria-busy={busy} disabled={busy}>{busy ? 'Publishing…' : 'Create group'}</button>
     </form>
   );
 }

@@ -69,7 +69,7 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
             </select>
           </label>
           {error && <p className="error">{error}</p>}
-          <button disabled={busy}>{busy ? 'Sending…' : 'Ask to join'}</button>
+          <button aria-busy={busy} disabled={busy}>{busy ? 'Sending…' : 'Ask to join'}</button>
         </form>
       )}
     </div>
