@@ -10,6 +10,25 @@ encrypted Nostr events record the group, the schedule and who has paid. A bot co
 > Status: a hackathon project, tested on a Bitcoin test network (Mutinynet) with test coins. Read
 > [Limits](#limits-and-whats-not-done) before putting real money near it.
 
+## Hackathon fit
+
+Built for the brief *Bitcoin, Nostr and AI solutions that answer local and regional needs*. The need is
+the **ajo / esusu** savings circle, which depends on a trusted treasurer holding everyone's money. See
+[docs/PITCH.md](docs/PITCH.md) for the short presentation and [docs/DEMO.md](docs/DEMO.md) for a
+three-minute demo script.
+
+| Requirement | Where it is |
+|---|---|
+| Bitcoin, Nostr and AI centered | **Bitcoin/Lightning** moves the money; **Nostr** holds the identity and the encrypted records, and carries **NWC**; **AI** (Gemini) powers the assistant and reminders. |
+| Answers a local or regional need | Rotating savings groups; **naira** estimates; **Pidgin, Yoruba and Hausa**; one-click join from a shared link; pay from any wallet. |
+| **A Bitcoin/Lightning wallet implementation** | The **Wallet** page (`apps/web/src/pages/WalletPage.tsx`, `apps/web/src/lib/wallet.ts`): connect your own wallet over NWC, balance, receive (QR invoice), send to an invoice or Lightning address, history, budget meter. Tested with real payments: `npm run e2e:wallet -w @ajo/web`. |
+| A prototype, MVP or PoC | The whole repository: a working MVP, with unit tests and end-to-end tests that make real Lightning payments on a test network. One-command hosting with Docker. |
+| A brief presentation | [docs/PITCH.md](docs/PITCH.md) (text) and the [demo script](docs/DEMO.md). |
+
+The wallet does not hold funds itself: it is a wallet *interface* to the user's own self-custodial
+wallet (for example Alby Hub), which is where the coins and the Lightning node live. That is deliberate,
+and it is the same trust model as the rest of the project.
+
 ## How it works
 
 **People**
@@ -253,6 +272,7 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:live-autopay -w @ajo/bot` | relay, `NWC_AUTOPAY`, `NWC_RECIPIENT` | the bot pays from a budgeted connection and the wallet refuses an overspend | 1000 sats |
 | `e2e:live-ai -w @ajo/bot` | `GEMINI_API_KEY` | what Gemini writes in all four languages | none |
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
+| `e2e:wallet -w @ajo/web` | web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | the Wallet page: connect, balance, receive from another wallet, send to an invoice and to a Lightning address, budget meter, over-budget payment refused (about 1400 sats) | ~1400 sats |
 | `e2e:invite -w @ajo/web` | same | two browser identities: invite link, approval, start, payment from outside the app, confirmation | 1000 sats |
 
 The browser tests expect Chrome at `/usr/bin/google-chrome` and the web dev server on port 5173. The
