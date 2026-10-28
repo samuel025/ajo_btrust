@@ -25,8 +25,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${AI_URL}${path}`, { method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(45_000) });
-  } catch {
-    throw new Error("Couldn't reach the assistant. Check your connection and try again.");
+  } catch (e) {
+    // Waiting too long is a different problem from not being able to connect, and the advice differs.
+    if ((e as Error)?.name === 'TimeoutError' || (e as Error)?.name === 'AbortError') throw new Error('The assistant is taking too long to answer. Please try again in a moment.');
+    throw new Error("Couldn't reach the assistant. Check that the coordinator is running, then try again.");
   }
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   if (res.status === 429) throw new Error('You have asked a lot in a short time. Please try again in a little while.');

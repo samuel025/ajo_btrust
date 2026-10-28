@@ -65,7 +65,7 @@ async function loop() {
 if (anyOrganizer) console.warn('WARNING: ORGANIZERS=* , so this bot runs every group that names it. Use this for a private demo only.');
 // The AI features the web app calls before a group exists (describing a group, the wallet guide).
 const aiPort = Number(process.env.AI_PORT ?? 3480);
-aiServer({ complete, allowedOrigin: process.env.AI_ALLOWED_ORIGIN, onError: (e) => console.error('ai:', (e as Error).message) })
+aiServer({ complete: complete?.interactive, allowedOrigin: process.env.AI_ALLOWED_ORIGIN, onError: (e) => console.error('ai:', (e as Error).message) })
   .listen(aiPort, process.env.AI_HOST ?? '127.0.0.1', () => console.log(`AI features: ${complete ? 'on' : 'off (set GEMINI_API_KEY)'} at port ${aiPort}`));
 console.log(`Coordinator running against ${relays.join(', ')}`);
 console.log(writer === templateWriter ? 'Assistant: built-in templates (set GEMINI_API_KEY to use Gemini)' : `Assistant: Gemini (${configuredGeminiModels().join(' → ')}); AI-written reminders in: ${aiReminderLanguages.join(', ')}`);

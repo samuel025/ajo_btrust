@@ -95,6 +95,8 @@ export interface GeminiOptions {
   aiReminderLanguages?: Language[];
   /** Minimum gap between calls, to stay inside the free tier's per-minute limit. */
   minIntervalMs?: number;
+  /** The same for calls a person is waiting on (the interactive lane), which are rare and should be quick. */
+  interactiveIntervalMs?: number;
   /** How long to skip a model after a quota error that doesn't say when to retry. */
   cooldownMs?: number;
   now?: () => number;
@@ -119,13 +121,12 @@ export const configuredGeminiModels = (env: NodeJS.ProcessEnv = process.env): st
  * Google Gemini through the Gemini API (the free tier needs only an API key from AI Studio), as a plain "complete" function that
  * spaces its calls and moves on to another model when one is out of quota.
  */
-export function geminiComplete(options: GeminiOptions = {}): Complete {
+export function geminiComplete(options: GeminiOptions = {}): Complete & { interactive: Complete } {
   const client = options.client ?? new GoogleGenAI({ apiKey: options.apiKey });
   const models = options.models ?? (options.model ? [options.model] : configuredGeminiModels());
-  const { minIntervalMs = 5000, cooldownMs = 60_000, now = Date.now, sleep = (ms) => new Promise<void>((r) => setTimeout(r, ms)) } = options;
+  const { minIntervalMs = 5000, interactiveIntervalMs = 1000, cooldownMs = 60_000, now = Date.now, sleep = (ms) => new Promise<void>((r) => setTimeout(r, ms)) } = options;
+  // Which models are resting after errors is shared by every lane.
   const coolUntil = new Map<string, number>();
-  let lastCall = 0;
-  let queue: Promise<unknown> = Promise.resolve();
 
   async function generate(model: string, system: string, user: string): Promise<string> {
     const response = await client.models.generateContent({
@@ -145,35 +146,43 @@ export function geminiComplete(options: GeminiOptions = {}): Complete {
     return response.text ?? '';
   }
 
-  const call: Complete = async (system, user) => {
-    const available = models.filter((m) => now() >= (coolUntil.get(m) ?? 0));
-    if (!available.length) throw new Error('skipping the model: every model is cooling down after quota errors');
-    const wait = lastCall + minIntervalMs - now();
-    if (wait > 0) await sleep(wait);
-    lastCall = now();
+  /**
+   * One lane of calls: one at a time, so the spacing holds even when several replies are written together. The
+   * background lane (reminders and answers for groups) is slow and patient; the interactive lane (a person waiting
+   * on a web page) has its own queue, so a question never waits behind a pile of background work.
+   */
+  const lane = (spacingMs: number): Complete => {
+    let lastCall = 0;
+    let queue: Promise<unknown> = Promise.resolve();
+    const call: Complete = async (system, user) => {
+      const available = models.filter((m) => now() >= (coolUntil.get(m) ?? 0));
+      if (!available.length) throw new Error('skipping the model: every model is cooling down after quota errors');
+      const wait = lastCall + spacingMs - now();
+      if (wait > 0) await sleep(wait);
+      lastCall = now();
 
-    let last: unknown;
-    for (const model of available) {
-      try {
-        return await generate(model, system, user);
-      } catch (e) {
-        if (isQuotaError(e)) coolUntil.set(model, now() + (retryAfterMs(e) ?? cooldownMs));
-        else if (isOverloaded(e)) coolUntil.set(model, now() + 30_000);
-        else if (isMissingModel(e)) coolUntil.set(model, now() + 3_600_000);
-        else throw e;
-        last = e; // try the next model
+      let last: unknown;
+      for (const model of available) {
+        try {
+          return await generate(model, system, user);
+        } catch (e) {
+          if (isQuotaError(e)) coolUntil.set(model, now() + (retryAfterMs(e) ?? cooldownMs));
+          else if (isOverloaded(e)) coolUntil.set(model, now() + 30_000);
+          else if (isMissingModel(e)) coolUntil.set(model, now() + 3_600_000);
+          else throw e;
+          last = e; // try the next model
+        }
       }
-    }
-    throw last;
-  };
-  // One call at a time, so the spacing holds even when several replies are written together.
-  const complete: Complete = (system, user) => {
-    const result = queue.then(() => call(system, user));
-    queue = result.catch(() => undefined);
-    return result;
+      throw last;
+    };
+    return (system, user) => {
+      const result = queue.then(() => call(system, user));
+      queue = result.catch(() => undefined);
+      return result;
+    };
   };
 
-  return complete;
+  return Object.assign(lane(minIntervalMs), { interactive: lane(interactiveIntervalMs) });
 }
 
 /** Writes reminders and answers with Gemini, falling back to the fixed templates. */

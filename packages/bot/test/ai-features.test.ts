@@ -175,3 +175,20 @@ describe('the AI web service', () => {
     tight.close();
   });
 });
+
+describe('the interactive lane of the model client', () => {
+  it('answers a person at once while the background lane is still working through its queue', async () => {
+    const { geminiComplete } = await import('../src/ai');
+    const finished: string[] = [];
+    let t = 0;
+    const client = { models: { generateContent: async ({ contents }: { contents: string }) => { finished.push(contents); return { text: 'ok', candidates: [{ finishReason: 'STOP' }] }; } } };
+    const complete = geminiComplete({ client: client as never, minIntervalMs: 5000, interactiveIntervalMs: 0, now: () => t, sleep: async (ms) => { t += ms; await new Promise((r) => setTimeout(r, 15)); } });
+    // five background calls queue up behind 5 s spacing each...
+    const background = [1, 2, 3, 4, 5].map((n) => complete('s', `bg${n}`));
+    // ...and a person's question arrives while they wait
+    await complete.interactive('s', 'person');
+    expect(finished).toContain('person');
+    expect(finished.filter((x) => x.startsWith('bg')).length).toBeLessThan(5); // the question did not wait for all of them
+    await Promise.all(background);
+  });
+});
