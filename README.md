@@ -165,7 +165,8 @@ npm run keygen -w @ajo/bot            # prints BOT_NSEC and an npub
 
 1. Create `.env` in the repo root with `BOT_NSEC=…` and `RELAYS=ws://localhost:7777`.
 2. Create `apps/web/.env.local` with `VITE_COORDINATOR=<the npub>` so new groups name this bot.
-3. Run `npm run e2e:bitcoin -w @ajo/web` once. It makes a test wallet and prints a line
+3. With the web app running (`npm run dev -w @ajo/web` in another terminal) and Chrome installed, run
+   `npm run e2e:bitcoin -w @ajo/web` once. It makes a test wallet and prints a line
    `ONCHAIN_TEST_MNEMONIC="…"` and an address: add the line to `.env`, then get free coins to the address at
    <https://faucet.mutinynet.com> (a few thousand test sats is plenty).
 4. Run `npm run demo`. It starts the web app and the bot, and prints the steps.
