@@ -9,10 +9,12 @@ export function devLnurlServer(nwcUrl: string, port: number, options: { expirySe
   const wallet = new NWCClient({ nostrWalletConnectUrl: nwcUrl });
   const origin = `http://localhost:${port}`;
   const send = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+    // Real Lightning address providers allow requests from other sites, which a browser wallet needs.
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }).end(JSON.stringify(body));
   };
 
   const server = createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') return void res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Allow-Headers': '*' }).end();
     const url = new URL(req.url ?? '/', origin);
     const lookup = url.pathname.match(/^\/\.well-known\/lnurlp\/([^/]+)$/);
     if (lookup) {

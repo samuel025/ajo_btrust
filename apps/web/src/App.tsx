@@ -11,11 +11,14 @@ import { Home } from './pages/Home';
 import { NewGroup } from './pages/NewGroup';
 import { GroupPage } from './pages/GroupPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { WalletPage } from './pages/WalletPage';
 
 export interface Ctx {
   signer: Signer;
   settings: Settings;
   navigate: (to: string) => void;
+  /** Saves part of the settings (for example the wallet connection) and keeps it. */
+  updateSettings: (patch: Partial<Settings>) => void;
   /** Naira per bitcoin, when a rate could be fetched. Amounts are always in sats; naira is only an estimate. */
   rate?: Rate;
 }
@@ -44,13 +47,19 @@ export function App() {
     return <Login onSignedIn={setSigner} banner={banner} />;
   }
 
-  const ctx: Ctx = { signer, settings, navigate, rate };
+  const updateSettings = (patch: Partial<Settings>) => {
+    const next = { ...settings, ...patch };
+    saveSettings(next);
+    setSettings(next);
+  };
+  const ctx: Ctx = { signer, settings, navigate, rate, updateSettings };
   const group = route.match(/^\/g\/([0-9a-f]{64})\/(.+)$/);
 
   let page;
   if (invite) page = <InvitePage ctx={ctx} invite={invite} />;
   else if (group) page = <GroupPage ctx={ctx} author={group[1]!} id={decodeURIComponent(group[2]!)} />;
   else if (route === '/new') page = <NewGroup ctx={ctx} />;
+  else if (route === '/wallet') page = <WalletPage ctx={ctx} />;
   else if (route === '/settings') {
     page = <SettingsPage ctx={ctx} onSave={(s) => { saveSettings(s); setSettings(s); navigate('/'); }} onSignOut={() => setSigner(undefined)} />;
   } else page = <Home ctx={ctx} />;
@@ -60,6 +69,7 @@ export function App() {
       <header className="bar">
         <a className="brand" href="#/">Bitcoin Ajo</a>
         <nav>
+          <a href="#/wallet">Wallet</a>
           <a href="#/new">New group</a>
           <a href="#/settings">Settings</a>
         </nav>
