@@ -12,11 +12,15 @@
     "e2e:browser": "tsx --env-file=../../.env e2e/browser.ts",
     "e2e:reputation": "tsx e2e/reputation.ts",
     "e2e:invite": "tsx --env-file=../../.env e2e/invite.ts",
-    "e2e:wallet": "tsx --env-file=../../.env e2e/wallet.ts"
+    "e2e:wallet": "tsx --env-file=../../.env e2e/wallet.ts",
+    "e2e:bitcoin": "tsx --env-file=../../.env e2e/bitcoin-wallet.ts"
   },
   "dependencies": {
     "@ajo/core": "*",
     "@getalby/sdk": "^9.0.0",
+    "@scure/bip32": "^2.4.0",
+    "@scure/bip39": "^2.4.0",
+    "@scure/btc-signer": "^2.4.1",
     "nostr-tools": "^2.10.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

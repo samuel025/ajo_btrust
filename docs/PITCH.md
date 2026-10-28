@@ -1,6 +1,6 @@
 # Bitcoin Ajo
 
-**The savings circle your community already trusts, rebuilt so nobody has to trust a treasurer. It has its own Lightning wallet, speaks Pidgin, Yoruba and Hausa, and shows prices in naira.**
+**The savings circle your community already trusts, rebuilt so nobody has to trust a treasurer. It has its own Bitcoin wallet and a Lightning wallet connection, speaks Pidgin, Yoruba and Hausa, and shows prices in naira.**
 
 ## The problem
 
@@ -41,15 +41,13 @@ Bitcoin Ajo takes the treasurer out of the money's path.
 
 ## The wallet (required deliverable)
 
-The app includes a Lightning wallet implementation on the **Wallet** page. It connects to the user's own self-custodial wallet over Nostr Wallet Connect, so the money stays with the user:
+The **Wallet** page holds two wallets that work together.
 
-- balance, with a naira estimate on the real network (never on test coins)
-- **receive:** create an invoice as a QR code, and the page notices when it is paid
-- **send:** to an invoice or a Lightning address, with the amount shown before paying, and no automatic retry of a payment that may have gone out
-- **history** of payments
-- **spending-budget meter** for limited connections, and plain-language explanations of wallet errors
+**Bitcoin (your keys), a real on-chain wallet.** The app creates the keys itself: a 12-word recovery phrase, checked back with three words, then locked with a password. It reads the blockchain, shows the balance, gives a fresh address and QR code for each receive, and builds, signs and broadcasts payments (with a review screen showing the amount, fee and change) all in the browser. No server ever sees a key. Built on BIP-39/32/84 and checked against the official test vectors, including verifying the signatures it produces.
 
-It was tested in real Chrome against real Lightning payments (on the Mutinynet test network): receiving from another wallet, sending to an invoice, sending to a Lightning address, and a payment beyond the budget being refused.
+**Lightning, for paying the circle.** It connects to the user's own Lightning wallet over Nostr Wallet Connect: balance, receive by QR invoice, send to an invoice or Lightning address, history, and a spending-budget meter.
+
+Both were tested in real Chrome against the real Mutinynet test network. Mainnet is switched off until the code is audited.
 
 ## What exists today
 

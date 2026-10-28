@@ -27,7 +27,7 @@ Run through this list. Most "it didn't work in the demo" problems are on it.
 
 **1:20, pay from any wallet (40 s).** Member's group page shows the QR code. Say: "Any Lightning wallet works." Open the member's **Wallet** page, connect the wallet, and **Send**: paste the invoice and pay. (Or pay from Alby Hub's Send screen to show it really is any wallet.) Switch back: the round turns **Complete** with no receipt entered. Say: "The bot checked the payment proof itself."
 
-**2:00, the wallet (25 s).** **Wallet** page: balance, **Receive** (create a QR invoice and have it paid), **History**, and the **budget meter** of a limited connection. Say: "This is a full Lightning wallet connected to the user's own wallet through NWC. The money never leaves their control."
+**2:00, the wallet (25 s).** **Wallet** page: balance, **Receive** (create a QR invoice and have it paid), **History**, and the **budget meter** of a limited connection. Say: "Two wallets. The Bitcoin tab holds its own keys: twelve words, a password, real signed transactions. The Lightning tab connects the user's own Lightning wallet. The money never leaves their control." Show **Bitcoin → Receive** (address and QR) and **History**.
 
 **2:25, the assistant (15 s).** Ask in Pidgin: "wetin dey happen with my turn?" Show the answer. Say: "AI in the language people actually speak."
 

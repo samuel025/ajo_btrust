@@ -21,13 +21,17 @@ three-minute demo script.
 |---|---|
 | Bitcoin, Nostr and AI centered | **Bitcoin/Lightning** moves the money; **Nostr** holds the identity and the encrypted records, and carries **NWC**; **AI** (Gemini) powers the assistant and reminders. |
 | Answers a local or regional need | Rotating savings groups; **naira** estimates; **Pidgin, Yoruba and Hausa**; one-click join from a shared link; pay from any wallet. |
-| **A Bitcoin/Lightning wallet implementation** | The **Wallet** page (`apps/web/src/pages/WalletPage.tsx`, `apps/web/src/lib/wallet.ts`): connect your own wallet over NWC, balance, receive (QR invoice), send to an invoice or Lightning address, history, budget meter. Tested with real payments: `npm run e2e:wallet -w @ajo/web`. |
+| **A Bitcoin/Lightning wallet implementation** | The **Wallet** page has two parts. **Bitcoin (your keys)** is a real on-chain wallet: it makes a 12-word recovery phrase (BIP-39), derives native-SegWit keys (BIP-84), scans the blockchain, builds, signs and broadcasts transactions in the browser (`apps/web/src/lib/onchain/`, `pages/BitcoinWallet.tsx`). **Lightning** connects your own wallet over NWC for invoices, sending and budgets (`lib/wallet.ts`). Tests: `npm run e2e:bitcoin -w @ajo/web`, `npm run e2e:wallet -w @ajo/web`. |
 | A prototype, MVP or PoC | The whole repository: a working MVP, with unit tests and end-to-end tests that make real Lightning payments on a test network. One-command hosting with Docker. |
 | A brief presentation | [docs/PITCH.md](docs/PITCH.md) (text) and the [demo script](docs/DEMO.md). |
 
-The wallet does not hold funds itself: it is a wallet *interface* to the user's own self-custodial
-wallet (for example Alby Hub), which is where the coins and the Lightning node live. That is deliberate,
-and it is the same trust model as the rest of the project.
+The **Bitcoin** tab is a genuine self-custodial wallet: the keys are created and kept in the user's
+browser, locked by a password and encrypted (PBKDF2 + AES-GCM), and the 12 words are the backup. Nobody
+else, including us, can move the coins. It runs on the Mutinynet signet test network by default;
+mainnet is switched off unless `VITE_ALLOW_MAINNET=1`, because this code has not had a security audit.
+The **Lightning** tab does not hold funds: it is an interface to the user's own Lightning wallet (for
+example Alby Hub), which is where the Lightning node lives. An in-browser Lightning node is not practical
+today, so the app pairs the two: on-chain for keeping, Lightning for paying the circle.
 
 ## How it works
 
@@ -244,6 +248,8 @@ Set in `.env` at the repo root (read by the bot and the live tests), or in the e
 | `GEMINI_API_KEY` | bot | Turns on Gemini for the assistant. Free key: <https://aistudio.google.com/apikey>. |
 | `GEMINI_MODELS` | bot | Comma-separated model list, tried in order. Default `gemini-3.1-flash-lite,gemini-2.5-flash`. |
 | `AI_REMINDER_LANGUAGES` | bot | Languages in which Gemini may write reminders. Default `en`; others use fixed templates. |
+| `VITE_BTC_NETWORK`, `VITE_ESPLORA_URL`, `VITE_ALLOW_MAINNET` | web | On-chain wallet network (`signet` default, `testnet`), the block explorer API to use, and the mainnet switch (leave off). |
+| `ONCHAIN_TEST_MNEMONIC` | `e2e:bitcoin` | A funded signet wallet for the live on-chain test. Run the test once without it and it prints a fresh one and an address to fund. |
 | `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |
 | `LNURL_INVOICE_EXPIRY` | stand-in | Seconds its invoices stay payable. By default the wallet's own (24 hours on Alby Hub). Short values are for testing refresh. |
 | `LNURL_PORT` | stand-in | Port of the Lightning address stand-in. Default 3456. |
@@ -272,6 +278,7 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:live-autopay -w @ajo/bot` | relay, `NWC_AUTOPAY`, `NWC_RECIPIENT` | the bot pays from a budgeted connection and the wallet refuses an overspend | 1000 sats |
 | `e2e:live-ai -w @ajo/bot` | `GEMINI_API_KEY` | what Gemini writes in all four languages | none |
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
+| `e2e:bitcoin -w @ajo/web` | web dev server, Chrome, internet (Mutinynet); `ONCHAIN_TEST_MNEMONIC` for the funded half | the on-chain wallet: create, verify backup, lock/unlock, restore on a second device; with funds, real balance and a real signed payment confirmed in a block | network fee only |
 | `e2e:wallet -w @ajo/web` | web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | the Wallet page: connect, balance, receive from another wallet, send to an invoice and to a Lightning address, budget meter, over-budget payment refused (about 1400 sats) | ~1400 sats |
 | `e2e:invite -w @ajo/web` | same | two browser identities: invite link, approval, start, payment from outside the app, confirmation | 1000 sats |
 

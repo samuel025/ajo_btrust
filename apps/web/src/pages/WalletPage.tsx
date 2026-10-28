@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Ctx } from '../App';
+import { BitcoinWallet } from './BitcoinWallet';
 import { InvoiceQr } from '../components/InvoiceQr';
 import { withNaira, formatNaira, satsToNaira } from '../lib/rate';
 import {
@@ -7,7 +8,22 @@ import {
   sendPayment, walletBalanceSats, walletInfo, walletTransactions, type Payment, type ReceiveInvoice, type Tx, type WalletInfo,
 } from '../lib/wallet';
 
+/** Two wallets side by side: Bitcoin held with your own keys here, and Lightning through a wallet you connect. */
 export function WalletPage({ ctx }: { ctx: Ctx }) {
+  const [kind, setKind] = useState<'bitcoin' | 'lightning'>('bitcoin');
+  return (
+    <>
+      <h1>Wallet</h1>
+      <div className="tabs" role="tablist" aria-label="Wallet type">
+        <button role="tab" aria-selected={kind === 'bitcoin'} className={kind === 'bitcoin' ? 'tab on' : 'tab'} onClick={() => setKind('bitcoin')}>Bitcoin (your keys)</button>
+        <button role="tab" aria-selected={kind === 'lightning'} className={kind === 'lightning' ? 'tab on' : 'tab'} onClick={() => setKind('lightning')}>Lightning (connect a wallet)</button>
+      </div>
+      {kind === 'bitcoin' ? <BitcoinWallet ctx={ctx} /> : <LightningWallet ctx={ctx} />}
+    </>
+  );
+}
+
+function LightningWallet({ ctx }: { ctx: Ctx }) {
   const url = ctx.settings.nwcUrl;
   return url ? <Connected ctx={ctx} url={url} /> : <ConnectCard ctx={ctx} />;
 }
@@ -34,8 +50,7 @@ function ConnectCard({ ctx }: { ctx: Ctx }) {
   };
 
   return (
-    <form className="narrow" onSubmit={connect}>
-      <h1>Wallet</h1>
+    <form onSubmit={connect}>
       <p className="muted">
         Send and receive Bitcoin over Lightning from your own wallet. The money stays in <i>your</i> wallet; this page only asks it to
         pay or to make an invoice, through Nostr Wallet Connect (NWC).
@@ -96,7 +111,6 @@ function Connected({ ctx, url }: { ctx: Ctx; url: string }) {
 
   return (
     <>
-      <h1>Wallet</h1>
       <section className="card">
         <div className="row">
           <div>

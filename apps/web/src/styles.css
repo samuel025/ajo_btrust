@@ -83,3 +83,14 @@ label.radio input { width: auto; margin: 0 6px 0 0; }
 .txs .in { color: #15803d; font-weight: 600; text-align: right; }
 .txs .out { font-weight: 600; text-align: right; }
 @media (prefers-color-scheme: dark) { .txs .in { color: #4ade80; } }
+
+.words { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0; margin: 14px 0; }
+.words li { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-weight: 600; }
+.words .muted { display: inline-block; min-width: 1.4em; }
+@media (max-width: 420px) { .words { grid-template-columns: repeat(2, 1fr); } }
+.notice { background: var(--highlight); border-radius: 8px; padding: 8px 12px; }
+.warn { color: var(--error); }
+code.address { word-break: break-all; font-size: .85rem; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; }
