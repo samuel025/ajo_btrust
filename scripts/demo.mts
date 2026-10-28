@@ -45,7 +45,7 @@ const run = (name: string, cmd: string, args: string[], env: NodeJS.ProcessEnv =
 if (dry) console.log('(dry run: nothing is started)');
 else if (await open('127.0.0.1', 5173)) console.log('The web app is already running on :5173, so it was left alone.');
 else run('web', 'npm', ['run', 'dev', '-w', '@ajo/web']);
-if (!dry) run('bot', 'npm', ['start', '-w', '@ajo/bot'], { ORGANIZERS: '*' });
+if (!dry) run('bot', 'npm', ['start', '-w', '@ajo/bot'], { ORGANIZERS: '*', AJO_ALLOW_LOCAL_LNURL: '1' }); // local stand-in Lightning addresses are fine in a demo
 
 console.log(`
 =========================== DEMO READY ===========================
