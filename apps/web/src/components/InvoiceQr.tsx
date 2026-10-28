@@ -27,7 +27,7 @@ export function InvoiceQr({ invoice }: { invoice: string }) {
     <div className="qr">
       {src && <img src={src} alt="Lightning invoice QR code" width={192} height={192} />}
       <div className="qr-actions">
-        <a className="button" href={`lightning:${invoice}`}>Open in wallet</a>
+        <a className="button secondary" href={`lightning:${invoice}`}>Open in a wallet app</a>
         <button type="button" className="secondary" onClick={copy}>{copied ? 'Copied' : 'Copy invoice'}</button>
       </div>
     </div>

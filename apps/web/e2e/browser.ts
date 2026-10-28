@@ -48,8 +48,8 @@ try {
   await amount!.type('1000');
   // this test adds members by their keys; invite links have their own test
   await page.evaluate(() => { [...document.querySelectorAll('label.radio')].find((l) => l.textContent?.includes('already have'))!.querySelector('input')!.click(); });
-  await page.waitForSelector('textarea');
-  const members = await page.$('textarea');
+  await page.waitForSelector('form:not(.describe) textarea');
+  const members = await page.$('form:not(.describe) textarea'); // the members box (the "Describe your group" box is outside the form)
   await members!.click({ clickCount: 3 });
   await page.keyboard.press('Backspace');
   await members!.type(`${nip19.npubEncode(getPublicKey(recipientKey))}\n${nip19.npubEncode(mePub)}`);

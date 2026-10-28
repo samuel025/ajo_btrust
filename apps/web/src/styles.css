@@ -306,3 +306,9 @@ details[open] > summary { margin-bottom: 8px; }
   button[aria-busy="true"]::before, .dots { animation-duration: 2.4s !important; }
   .skeleton { animation: none; }
 }
+
+/* ---------- paying a round: one main action, other ways underneath ---------- */
+.primary-pay { margin: 16px 0 4px; }
+.primary-pay button { min-height: 44px; padding: 0 22px; }
+.alt-pay { margin-top: 20px; padding-top: 6px; border-top: 1px solid var(--border); }
+.alt-pay h3 { font-size: .8rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-family: var(--mono); margin: 12px 0 8px; }

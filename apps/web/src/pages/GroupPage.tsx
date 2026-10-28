@@ -310,6 +310,8 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
 
   // A Lightning extension in the browser (WebLN) can pay without any connection being set up.
   const hasExtension = !!weblnProvider();
+  /** One clear main action when a wallet can pay in one tap (a connected wallet, or a browser extension). */
+  const hasPrimary = !!ctx.settings.nwcUrl || hasExtension;
   const payExtension = async () => {
     if (status !== 'idle') return;
     setError(undefined);
@@ -342,14 +344,29 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       {activity.autopay && <p className="muted">Auto-pay is on, so the coordinator will pay this for you. You can also pay now.</p>}
       {!invoice && <p className="muted">Waiting for the coordinator to get your invoice from the recipient.</p>}
       {expired && <p className="muted">The invoice has expired. The coordinator issues a fresh one automatically, usually within a minute, and it will appear here.</p>}
+      {usable && hasPrimary && (
+        <div className="primary-pay">
+          <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={ctx.settings.nwcUrl ? pay : payExtension}>
+            {status === 'paying'
+              ? (ctx.settings.nwcUrl ? 'Paying…' : 'Waiting for your wallet…')
+              : `Pay ${formatSats(group.amountSats)} with my ${ctx.settings.nwcUrl ? 'connected' : 'browser'} wallet`}
+          </button>
+          <p className="muted small">
+            {ctx.settings.nwcUrl
+              ? 'Pays straight from the wallet you connected, within the budget you set. Nothing else to do.'
+              : 'Your wallet extension will ask you to approve this payment.'}
+          </p>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
       {usable && (
-        <>
-          <p><strong>Pay with any Lightning wallet</strong></p>
+        <div className={hasPrimary ? 'alt-pay' : undefined}>
+          <h3>{hasPrimary ? 'Or pay another way' : 'Pay with any Lightning wallet'}</h3>
           <InvoiceQr invoice={invoice} />
           <p className="muted small">
             {autoConfirm
-              ? 'Scan it or open it in your wallet. The coordinator confirms the payment by itself, usually within a minute.'
-              : "Scan it or open it in your wallet. This recipient's provider can't confirm payments by itself, so afterwards paste the payment proof below, or pay with a connected wallet."}
+              ? 'Scan the code, or open it in a wallet app on this device. The coordinator confirms the payment by itself, usually within a minute.'
+              : "Scan the code, or open it in a wallet app on this device. This recipient's provider can't confirm payments by itself, so afterwards paste the payment proof below."}
           </p>
           {!autoConfirm && (
             <details>
@@ -360,23 +377,8 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
               <button type="button" className="secondary" aria-busy={status === 'paying'} disabled={!proof.trim() || status === 'paying'} onClick={submitProof}>Submit proof</button>
             </details>
           )}
-          {ctx.settings.nwcUrl ? (
-            <p className="muted small">Or pay with your connected wallet:</p>
-          ) : (
-            <p className="muted small">Tip: <a href="#/wallet">connect a wallet</a> to pay with one tap instead.</p>
-          )}
-        </>
-      )}
-      {error && <p className="error">{error}</p>}
-      {usable && !ctx.settings.nwcUrl && hasExtension && (
-        <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={payExtension}>
-          {status === 'paying' ? 'Waiting for your wallet…' : `Pay ${formatSats(group.amountSats)} with my browser wallet`}
-        </button>
-      )}
-      {usable && ctx.settings.nwcUrl && (
-        <button aria-busy={status === 'paying'} disabled={status === 'paying'} onClick={pay}>
-          {status === 'paying' ? 'Paying…' : `Pay ${formatSats(group.amountSats)}`}
-        </button>
+          {!hasPrimary && <p className="muted small">Tip: <a href="#/wallet">connect a wallet</a> to pay with one tap instead.</p>}
+        </div>
       )}
     </section>
   );
