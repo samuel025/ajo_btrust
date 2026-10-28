@@ -22,6 +22,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODELS: ${GEMINI_MODELS:-}
       AI_REMINDER_LANGUAGES: ${AI_REMINDER_LANGUAGES:-en}
+      # The AI web service listens inside the compose network only; Caddy forwards /ai to it.
+      AI_HOST: 0.0.0.0
 
   web:
     build:

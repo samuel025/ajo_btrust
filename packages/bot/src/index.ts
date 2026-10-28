@@ -5,3 +5,5 @@ export * from './dev-lnurl-server';
 export * from './nostr-ledger';
 export * from './safe-fetch';
 export * from './chain';
+export * from './ai-server';
+export * from './ai-features';

@@ -123,6 +123,12 @@ try {
   await org.text('You can pay from');
   await org.page.screenshot({ path: `${shots}/11-round2-waits.png` });
   check(true, 'round 2 is announced with its opening date instead of opening at once');
+
+  // "Catch me up": the member asks, the coordinator writes a recap from the group's facts, and it shows up in the thread
+  await guest.click('Catch me up');
+  await run();
+  await guest.text('rounds are complete');
+  check(true, '"Catch me up" produced a recap of the group in the member\'s thread');
 } finally {
   await browser.close();
   server.close();

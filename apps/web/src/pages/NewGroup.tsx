@@ -5,6 +5,7 @@ import { publish } from '../lib/ledger';
 import { nextNineAm, parseMembers, toHexPubkey } from '../lib/format';
 import { formatNaira, nairaToSats, satsToNaira } from '../lib/rate';
 import type { Ctx } from '../App';
+import { DescribeGroup } from '../components/DescribeGroup';
 
 /** Today's date in the person's own timezone, as the date field wants it (yyyy-mm-dd). */
 const today = () => {
@@ -58,8 +59,10 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
   };
 
   return (
-    <form className="narrow" onSubmit={submit}>
+    <div className="narrow">
       <h1>New group</h1>
+      <DescribeGroup rate={ctx.rate} onFill={(v) => { if (v.name !== undefined) setName(v.name); if (v.amount !== undefined) setAmount(v.amount); if (v.frequency !== undefined) setFrequency(v.frequency); if (v.start !== undefined) setStart(v.start); }} />
+    <form onSubmit={submit}>
       <label>Group name
         <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Office ajo" />
       </label>
@@ -112,5 +115,6 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
       {error && <p className="error">{error}</p>}
       <button aria-busy={busy} disabled={busy}>{busy ? 'Publishing…' : 'Create group'}</button>
     </form>
+    </div>
   );
 }

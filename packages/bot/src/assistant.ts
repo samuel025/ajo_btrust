@@ -1,6 +1,7 @@
-import { roundDeadline, unpaid, type GroupDef, type Language, type Notice, type Question, type RoundState } from '@ajo/core';
+import { CATCH_UP_QUESTION, roundDeadline, unpaid, type GroupDef, type Language, type Notice, type Question, type RoundState } from '@ajo/core';
 import type { Action } from './engine';
 import { formatDate, shortKey, type AssistantContext, type Writer } from './messages';
+import { templateCatchUp } from './ai-features';
 
 /** Questions answered per group per run, so a flood of questions can't run up an AI bill. */
 export const MAX_ANSWERS_PER_RUN = 5;
@@ -69,9 +70,14 @@ export async function sendReminders(outbox: Outbox, group: GroupDef, actions: Ac
 
 export async function answerQuestions(outbox: Outbox, group: GroupDef, state: RoundState, writer: Writer, autopaying: Set<string>): Promise<number> {
   const pending = (await outbox.questions(group)).slice(0, MAX_ANSWERS_PER_RUN);
+  const languages = pending.some((q) => q.text === CATCH_UP_QUESTION) ? await outbox.languages(group) : {};
   for (const question of pending) {
     const context = buildContext(group, state, question.member, autopaying.has(question.member));
-    await outbox.publishAnswer(group, question, await writer.answer(context, question.text));
+    // The recap is written in the language the member chose when joining, not guessed from their question.
+    const reply = question.text === CATCH_UP_QUESTION
+      ? await (writer.catchUp?.(context, languages[question.member] ?? 'en') ?? Promise.resolve(templateCatchUp(context)))
+      : await writer.answer(context, question.text);
+    await outbox.publishAnswer(group, question, reply);
   }
   return pending.length;
 }

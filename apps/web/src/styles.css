@@ -110,3 +110,10 @@ button[aria-busy="true"]::before { content: ''; display: inline-block; width: .8
 .txs .in, .txs .out { white-space: nowrap; }
 .txs li > div:first-child { min-width: 0; }
 @media (max-width: 480px) { .members li > .right { flex-basis: 100%; } }
+
+.describe textarea { width: 100%; margin: 8px 0; }
+.guide { margin-top: 12px; }
+.guide .q { font-weight: 600; margin: 10px 0 2px; }
+.guide .a { margin: 2px 0 10px; background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 10px; border-radius: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-weight: 400; font-size: .9rem; }

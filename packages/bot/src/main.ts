@@ -1,7 +1,8 @@
 import { nip19 } from 'nostr-tools';
 import { checkVerify, fetchInvoice, type GroupRef, type Language } from '@ajo/core';
 import { discoverGroups, nostrLedger } from './nostr-ledger';
-import { configuredGeminiModels, geminiWriter } from './ai';
+import { configuredGeminiModels, geminiComplete, llmWriter } from './ai';
+import { aiServer } from './ai-server';
 import { templateWriter } from './messages';
 import { payInvoice } from './pay';
 import { safeFetch } from './safe-fetch';
@@ -36,9 +37,10 @@ const chain = esploraChain(process.env.ESPLORA_URL ?? 'https://mutinynet.com/api
 const minConfirmations = Number(process.env.ONCHAIN_MIN_CONFIRMATIONS ?? 1);
 const aiReminderLanguages = (process.env.AI_REMINDER_LANGUAGES ?? 'en').split(',').map((l) => l.trim()).filter(Boolean) as Language[];
 const geminiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-const writer = geminiKey
-  ? geminiWriter({ apiKey: geminiKey, aiReminderLanguages, onError: (e) => console.error('assistant: Gemini call failed, used a template instead:', (e as Error).message) })
-  : templateWriter;
+const onAiError = (e: unknown) => console.error('assistant: Gemini call failed, used a template instead:', (e as Error).message);
+/** One model client for everything, so reminders, answers and the web app's AI features share its spacing and quota handling. */
+const complete = geminiKey ? geminiComplete({ apiKey: geminiKey, onError: onAiError }) : undefined;
+const writer = complete ? llmWriter(complete, { aiReminderLanguages, onError: onAiError }) : templateWriter;
 /** Invoices this process has already paid, so a failed publish never leads to a second payment. */
 const paid = new Map<string, string>();
 
@@ -61,6 +63,10 @@ async function loop() {
 }
 
 if (anyOrganizer) console.warn('WARNING: ORGANIZERS=* , so this bot runs every group that names it. Use this for a private demo only.');
+// The AI features the web app calls before a group exists (describing a group, the wallet guide).
+const aiPort = Number(process.env.AI_PORT ?? 3480);
+aiServer({ complete, allowedOrigin: process.env.AI_ALLOWED_ORIGIN, onError: (e) => console.error('ai:', (e as Error).message) })
+  .listen(aiPort, process.env.AI_HOST ?? '127.0.0.1', () => console.log(`AI features: ${complete ? 'on' : 'off (set GEMINI_API_KEY)'} at port ${aiPort}`));
 console.log(`Coordinator running against ${relays.join(', ')}`);
 console.log(writer === templateWriter ? 'Assistant: built-in templates (set GEMINI_API_KEY to use Gemini)' : `Assistant: Gemini (${configuredGeminiModels().join(' → ')}); AI-written reminders in: ${aiReminderLanguages.join(', ')}`);
 await loop();

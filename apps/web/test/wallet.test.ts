@@ -202,3 +202,27 @@ describe('remembering a payment', () => {
     delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
   });
 });
+
+describe('filling in the New group form from a description', () => {
+  it('converts naira to sats at the current rate and reports what it filled in', async () => {
+    const { applyDraft } = await import('../src/lib/ai');
+    const applied = applyDraft({ name: 'Office ajo', amountNaira: 20_000, frequency: 'monthly', startDate: '2026-12-01', members: 8 }, 100_000_000); // ₦100M per BTC → ₦1 = 1 sat
+    expect(applied.values).toEqual({ name: 'Office ajo', amount: '20000', frequency: 'monthly', start: '2026-12-01' });
+    expect(applied.changed.join(' ')).toContain('₦20,000 per round (20,000 sats');
+    expect(applied.notes.join(' ')).toContain('8 people');
+  });
+
+  it('never changes the amount when there is no rate, and says so', async () => {
+    const { applyDraft } = await import('../src/lib/ai');
+    const applied = applyDraft({ amountNaira: 5000, frequency: 'weekly' }, undefined);
+    expect(applied.values).toEqual({ frequency: 'weekly' });
+    expect(applied.notes.join(' ')).toContain("exchange rate isn't available");
+  });
+
+  it('takes sats as given, and says "every two weeks" for biweekly', async () => {
+    const { applyDraft } = await import('../src/lib/ai');
+    const applied = applyDraft({ amountSats: 3000, frequency: 'biweekly' }, 100_000_000);
+    expect(applied.values).toEqual({ amount: '3000', frequency: 'biweekly' });
+    expect(applied.changed.join(' ')).toContain('every two weeks');
+  });
+});

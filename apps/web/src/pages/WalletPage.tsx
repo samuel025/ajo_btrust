@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Ctx } from '../App';
 import { BitcoinWallet } from './BitcoinWallet';
 import { connectWithHub } from '../lib/connect';
+import { WalletGuide } from '../components/WalletGuide';
 import { InvoiceQr } from '../components/InvoiceQr';
 import { withNaira, formatNaira, satsToNaira } from '../lib/rate';
 import {
@@ -103,6 +104,7 @@ function ConnectCard({ ctx }: { ctx: Ctx }) {
           <li>To <b>be paid</b> (when it's your turn): a wallet that can receive that much, and a Lightning address (it looks like an email: <code>you@wallet.com</code>).</li>
           <li>Setting up your own wallet takes a few minutes. Alby Hub is one option: <a href="https://albyhub.com" target="_blank" rel="noreferrer">albyhub.com</a>.</li>
         </ul>
+        <WalletGuide />
       </details>
     </>
   );

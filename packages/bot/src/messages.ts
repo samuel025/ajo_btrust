@@ -33,6 +33,8 @@ export interface AssistantContext {
 export interface Writer {
   reminder(facts: ReminderFacts): Promise<string>;
   answer(context: AssistantContext, question: string): Promise<string>;
+  /** A recap of the group for one member, in their language. Optional: without it the plain English recap is used. */
+  catchUp?(context: AssistantContext, language: Language): Promise<string>;
 }
 
 // NOTE: the Pidgin, Yoruba and Hausa wording below has not been reviewed by native speakers.

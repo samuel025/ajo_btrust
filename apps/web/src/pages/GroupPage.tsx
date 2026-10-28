@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { LANGUAGES, isUpcoming, roundOpensAt, standings, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
+import { CATCH_UP_QUESTION, LANGUAGES, isUpcoming, roundOpensAt, standings, askEvent, autopayEvent, effectiveGroup, joinEvent, receiptEvent, roundCount, roundDeadline, recipientForRound, type GroupDef, type GroupKey, type Language, type RoundState } from '@ajo/core';
 import { loadActivity, loadGroup, publish, publishGroupUpdate, type GroupActivity } from '../lib/ledger';
 import { inviteLink } from '../lib/invite';
 import { clearPending, loadPending } from '../lib/pending';
@@ -428,12 +428,11 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
-  const ask = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const send = async (question: string) => {
     setError(undefined);
     setBusy(true);
     try {
-      await publish(ctx.settings.relay, ctx.signer, await askEvent(group.id, text.trim(), group.coordinator, ctx.signer.cipher));
+      await publish(ctx.settings.relay, ctx.signer, await askEvent(group.id, question, group.coordinator, ctx.signer.cipher));
       setText('');
       await onAsked();
     } catch (err) {
@@ -442,10 +441,12 @@ function AssistantCard({ ctx, group, thread, onAsked }: { ctx: Ctx; group: Group
       setBusy(false);
     }
   };
+  const ask = (e: React.FormEvent) => { e.preventDefault(); return send(text.trim()); };
 
   return (
     <section className="card">
       <h2>Ask the assistant</h2>
+      <p><button type="button" className="secondary" aria-busy={busy} disabled={busy || thread.some((t) => t.question.text === CATCH_UP_QUESTION && !t.answer)} onClick={() => send(CATCH_UP_QUESTION)}>Catch me up</button> <span className="muted small">a short recap of where the group is, in your language</span></p>
       <p className="muted small">Ask in English, Pidgin, Yoruba or Hausa, for example "when is my turn?" or "who hasn't paid?".</p>
       <p className="muted small">
         Questions are encrypted on the relay. But if the coordinator uses an AI service (Google Gemini) to write answers and reminders,

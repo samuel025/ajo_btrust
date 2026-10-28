@@ -9,6 +9,11 @@
 		reverse_proxy relay:8080
 	}
 
+	# The coordinator's AI features (describe a group, the wallet guide). /ai is stripped before forwarding.
+	handle_path /ai/* {
+		reverse_proxy bot:3480
+	}
+
 	handle {
 		root * /srv
 		try_files {path} /index.html

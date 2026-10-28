@@ -88,7 +88,16 @@ got through that round, so an unreachable collector can't make everyone look lik
 
 - **Reminders** a day before a round is due and when it is overdue, in the language each member chose
   (English, Pidgin, Yoruba, Hausa).
-- **Group assistant**: members ask "when is my turn?" or "who hasn't paid?" on the group page.
+- **Group assistant**: members ask "when is my turn?" or "who hasn't paid?" on the group page, or press
+  **Catch me up** for a short recap of the group in the language they chose when joining.
+- **Describe your group**: on New group, a sentence like "8 of us, ₦20,000 each, monthly, from 1 December" fills in
+  the form (naira converted to sats at today's rate). The person checks it; the AI never creates anything.
+- **Wallet guide**: a small chat in the Lightning tab that explains wallets, addresses and connections in
+  English, Pidgin, Yoruba or Hausa, answering only from what the app knows. It says "I'm not sure" about which
+  wallets exist or are legal where someone lives, and never names a "best" wallet.
+  Both of these run through the coordinator, which holds the Gemini key (it never reaches the browser). It
+  serves them on `AI_PORT` (default 3480, local only); the hosted setup forwards `/ai` to it. They are limited
+  per visitor and overall, and are simply hidden when no `GEMINI_API_KEY` is set.
 - **Naira estimates** next to every amount. Amounts are fixed in sats; the naira value is an estimate.
 - **Auto-pay**: a member can give the coordinator a wallet connection that can only pay invoices, with a
   spending budget enforced by their own wallet.
@@ -177,7 +186,7 @@ closes by itself about a minute after the payment (signet makes a block about ev
 ```
 git clone <this repo> && cd <repo>
 npm install
-npm test            # 256 unit tests; needs nothing else running
+npm test            # 277 unit tests; needs nothing else running
 ```
 
 ### 2. Start a relay
@@ -326,6 +335,7 @@ Set in `.env` at the repo root (read by the bot and the live tests), or in the e
 | `AI_REMINDER_LANGUAGES` | bot | Languages in which Gemini may write reminders. Default `en`; others use fixed templates. |
 | `VITE_BTC_NETWORK`, `VITE_ESPLORA_URL`, `VITE_ALLOW_MAINNET` | web | On-chain wallet network (`signet` default, `testnet`), the block explorer API to use, and the mainnet switch (leave off). |
 | `ORGANIZERS=*` | bot | Runs every group that names the bot. For a private demo only (`npm run demo` sets it). |
+| `AI_PORT`, `AI_HOST`, `AI_ALLOWED_ORIGIN` | bot | Where the coordinator serves the AI features the web app calls (3480, 127.0.0.1, any origin by default). The web app finds it at `VITE_AI_URL`, or `/ai` when hosted. |
 | `ESPLORA_URL`, `ONCHAIN_MIN_CONFIRMATIONS` | bot | The blockchain server the coordinator reads for on-chain groups (Mutinynet by default) and the confirmations a payment needs (1). |
 | `ONCHAIN_TEST_MNEMONIC` | `e2e:bitcoin` | A funded signet wallet for the live on-chain test. Run the test once without it and it prints a fresh one and an address to fund. |
 | `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |
@@ -358,6 +368,8 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
 | `e2e:bitcoin -w @ajo/web` | web dev server, Chrome, internet (Mutinynet); `ONCHAIN_TEST_MNEMONIC` for the funded half | the on-chain wallet: create, verify backup, lock/unlock, restore on a second device; with funds, real balance and a real signed payment confirmed in a block | network fee only |
 | `e2e:onchain-group -w @ajo/web` | relay, web dev server, Chrome, internet; funded `ONCHAIN_TEST_MNEMONIC` for the payment half | a group paid in Bitcoin: invite, join with the wallet's address, pay from the group page, the coordinator closes the round from the blockchain | ~1,200 test sats |
+| `e2e:ai -w @ajo/web` | web dev server, Chrome, `GEMINI_API_KEY` | the real Gemini model fills the New group form from a sentence (including naira to sats), and the wallet guide answers | a few free-tier calls |
+| `e2e:live-ai-features -w @ajo/bot` | `GEMINI_API_KEY` | the three AI features against the real model, including that a hidden instruction changes nothing and that the guide admits what it can't know | a few free-tier calls |
 | `e2e:connect -w @ajo/web` | web dev server, Chrome | one-click wallet connection: the app opens the wallet's approval window and keeps the connection it gets back (a stand-in wallet page answers; a real hub is tried by hand) | free |
 | `e2e:bump -w @ajo/web` | internet; funded `ONCHAIN_TEST_MNEMONIC` (1,500+ sats) | a payment sent at the lowest fee is replaced by a faster one on the real signet, and only the replacement is mined | ~1,000 test sats |
 | `e2e:wallet -w @ajo/web` | web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | the Wallet page: connect, balance, receive from another wallet, send to an invoice and to a Lightning address, budget meter, over-budget payment refused (about 1400 sats) | ~1400 sats |
