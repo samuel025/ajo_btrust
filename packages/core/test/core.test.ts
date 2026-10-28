@@ -8,6 +8,7 @@ import {
   openRound, parseGroup, parseJoin, parseReceipt, parseRound, receiptEvent, recipientForRound,
   roundDeadline, roundEvent, unpaid, verifyReceipt, type GroupDef,
 } from '../src';
+import { findOnchainPayments, paymentTag, tagScript } from '../src';
 import { isExpired, needsRefresh, parseInvoice as parseInv, refreshMargin } from '../src';
 
 const sk = () => generateSecretKey();
@@ -372,5 +373,61 @@ describe('lnurl', () => {
     }) as unknown as typeof fetch;
     expect(await fetchInvoice('amaka@wallet.example', 50, fake)).toEqual({ invoice: 'lnbc-invoice', verifyUrl: 'https://v' });
     expect(seen[1]).toContain('amount=50000');
+  });
+});
+
+describe('on-chain payments', () => {
+  const recipient = 'tb1qrecipient000000000000000000000000000000';
+  const tx = (txid: string, payer: string, over: Partial<{ to: string; value: number; confirmed: boolean; height: number; round: number }> = {}) => ({
+    txid,
+    status: { confirmed: over.confirmed ?? true, block_height: over.height ?? 100 },
+    vout: [
+      { scriptpubkey: '0014aa', scriptpubkey_address: over.to ?? recipient, value: over.value ?? 5000 },
+      { scriptpubkey: tagScript(paymentTag('g1', over.round ?? 0, payer)), value: 0 },
+      { scriptpubkey: '0014bb', scriptpubkey_address: 'tb1qchange', value: 777 },
+    ],
+  });
+  const base = { recipientAddress: recipient, amountSats: 5000, groupId: 'g1', round: 0, payers: ['alice', 'bob'], tip: 100, minConfirmations: 1 };
+
+  it('tags are specific to the group, round and payer', () => {
+    expect(paymentTag('g1', 0, 'alice')).toMatch(/^[0-9a-f]{16}$/);
+    expect(paymentTag('g1', 0, 'alice')).not.toBe(paymentTag('g1', 1, 'alice'));
+    expect(paymentTag('g1', 0, 'alice')).not.toBe(paymentTag('g1', 0, 'bob'));
+    expect(paymentTag('g1', 0, 'alice')).not.toBe(paymentTag('g2', 0, 'alice'));
+  });
+
+  it('finds who paid, by their tag', () => {
+    expect(findOnchainPayments({ ...base, txs: [tx('t1', 'alice'), tx('t2', 'bob')] })).toEqual({ alice: 't1', bob: 't2' });
+  });
+
+  it('does not count a payment that is short, to someone else, from another round, or unconfirmed', () => {
+    expect(findOnchainPayments({ ...base, txs: [tx('t1', 'alice', { value: 4999 })] })).toEqual({});
+    expect(findOnchainPayments({ ...base, txs: [tx('t1', 'alice', { to: 'tb1qsomeoneelse' })] })).toEqual({});
+    expect(findOnchainPayments({ ...base, txs: [tx('t1', 'alice', { round: 1 })] })).toEqual({});
+    expect(findOnchainPayments({ ...base, txs: [tx('t1', 'alice', { confirmed: false })] })).toEqual({});
+  });
+
+  it('counts confirmations against the chain tip', () => {
+    const txs = [tx('t1', 'alice', { height: 99 })]; // 2 confirmations at tip 100
+    expect(findOnchainPayments({ ...base, txs, minConfirmations: 2 })).toEqual({ alice: 't1' });
+    expect(findOnchainPayments({ ...base, txs, minConfirmations: 3 })).toEqual({});
+  });
+
+  it('one member cannot claim another member\'s transaction', () => {
+    // bob's tx carries bob's tag, so alice finds nothing in it
+    expect(findOnchainPayments({ ...base, payers: ['alice'], txs: [tx('t2', 'bob')] })).toEqual({});
+  });
+
+  it('a Bitcoin-only join request is accepted and a lightning one still works', async () => {
+    const { requestEvent, parseRequest, secretKeyCipher } = await import('../src/index');
+    const a = generateSecretKey(), b = generateSecretKey();
+    const ca = secretKeyCipher(a);
+    const cb = secretKeyCipher(b);
+    const onchain = await requestEvent('g1', getPublicKey(b), { lightningAddress: '', bitcoinAddress: 'tb1qucq2zgqv37mgxctwtdf3n5ckflz2df8ff369az' }, ca);
+    const read = await parseRequest(finalizeEvent(onchain, a), getPublicKey(a), cb);
+    expect(read.bitcoinAddress).toBe('tb1qucq2zgqv37mgxctwtdf3n5ckflz2df8ff369az');
+    expect(read.lightningAddress).toBe('');
+    const empty = await requestEvent('g1', getPublicKey(b), { lightningAddress: '' }, ca);
+    await expect(parseRequest(finalizeEvent(empty, a), getPublicKey(a), cb)).rejects.toThrow('malformed');
   });
 });

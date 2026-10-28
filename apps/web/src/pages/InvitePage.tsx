@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { LANGUAGES, type Language } from '@ajo/core';
 import type { Ctx } from '../App';
-import { frequencyLabel, shortKey, validateAddress } from '../lib/format';
+import { frequencyLabel, shortKey, validateAddress, validateBitcoinAddress } from '../lib/format';
+import { PayoutField } from '../components/PayoutField';
 import type { Invite } from '../lib/invite';
 import { usePoll } from '../lib/hooks';
 import { loadGroupIfMember, sendJoinRequest } from '../lib/ledger';
@@ -26,13 +27,15 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
 
   const ask = async (e: React.FormEvent) => {
     e.preventDefault();
-    const problem = validateAddress(address);
+    const onchain = invite.rail === 'onchain';
+    const problem = onchain ? validateBitcoinAddress(address) : validateAddress(address);
     if (problem) return setError(problem);
     setError(undefined);
     setBusy(true);
     try {
-      await sendJoinRequest(ctx.settings.relay, ctx.signer, ref, { lightningAddress: address.trim(), language });
-      savePending(ref, { lightningAddress: address.trim(), language });
+      const entered = onchain ? { lightningAddress: '', bitcoinAddress: address.trim() } : { lightningAddress: address.trim() };
+      await sendJoinRequest(ctx.settings.relay, ctx.signer, ref, { ...entered, language });
+      savePending(ref, { ...entered, language });
       setSent(true);
     } catch (err) {
       setError((err as Error).message);
@@ -45,7 +48,7 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
     <div className="narrow">
       <h1>You're invited to {invite.name}</h1>
       <p className="muted">
-        {withNaira(invite.amountSats, ctx.rate)} per round · {frequencyLabel[invite.frequency]}. Organized by {shortKey(invite.author)}.
+        {withNaira(invite.amountSats, ctx.rate)} per round · {frequencyLabel[invite.frequency]}{invite.rail === 'onchain' ? ' · paid in Bitcoin on-chain' : ''}. Organized by {shortKey(invite.author)}.
       </p>
       <p className="muted small">This is what the link says. Once you're added you'll see the real group, and you can check it matches before you pay anything.</p>
 
@@ -58,10 +61,8 @@ export function InvitePage({ ctx, invite }: { ctx: Ctx; invite: Invite }) {
       ) : (
         <form className="card" onSubmit={ask}>
           <h2>Ask to join</h2>
-          <p className="muted">Members pay you at your Lightning address when it's your turn to receive. Only the organizer sees this.</p>
-          <label>Your Lightning address
-            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="you@wallet.com" />
-          </label>
+          <p className="muted">Members pay you at {invite.rail === 'onchain' ? 'this Bitcoin address' : 'your Lightning address'} when it's your turn to receive. Only the organizer sees this.</p>
+          <PayoutField rail={invite.rail} value={address} onChange={setAddress} />
           <label>Language for reminders
             <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
               {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}

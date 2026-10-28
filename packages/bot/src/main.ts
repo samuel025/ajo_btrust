@@ -6,6 +6,7 @@ import { templateWriter } from './messages';
 import { payInvoice } from './pay';
 import { safeFetch } from './safe-fetch';
 import { runOnce } from './runner';
+import { esploraChain } from './chain';
 
 const nsec = process.env.BOT_NSEC;
 const relays = process.env.RELAYS?.split(',');
@@ -28,6 +29,9 @@ const ledger = nostrLedger(relays, secretKey);
 /** Every outbound request to an address a member controls goes through this guard. */
 const guardedFetch = safeFetch();
 const INTERVAL_MS = 30_000;
+/** Reads the blockchain to confirm on-chain payments. Mutinynet signet unless ESPLORA_URL says otherwise. */
+const chain = esploraChain(process.env.ESPLORA_URL ?? 'https://mutinynet.com/api');
+const minConfirmations = Number(process.env.ONCHAIN_MIN_CONFIRMATIONS ?? 1);
 const aiReminderLanguages = (process.env.AI_REMINDER_LANGUAGES ?? 'en').split(',').map((l) => l.trim()).filter(Boolean) as Language[];
 const geminiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
 const writer = geminiKey
@@ -46,7 +50,7 @@ async function loop() {
   ];
   for (const ref of refs) {
     try {
-      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats, guardedFetch), undefined, { pay: payInvoice, paid, writer, checkPayment: (url) => checkVerify(url, guardedFetch) });
+      const actions = await runOnce(ledger, ref, (address, sats) => fetchInvoice(address, sats, guardedFetch), undefined, { pay: payInvoice, paid, writer, chain, minConfirmations, checkPayment: (url) => checkVerify(url, guardedFetch) });
       for (const action of actions) console.log(ref.id, JSON.stringify(action));
     } catch (e) {
       console.error(ref.id, (e as Error).message);

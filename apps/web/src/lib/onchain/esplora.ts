@@ -2,7 +2,7 @@
 export interface EsploraTx {
   txid: string;
   vin: { txid: string; vout: number; prevout?: { scriptpubkey_address?: string; value: number } }[];
-  vout: { scriptpubkey_address?: string; value: number }[];
+  vout: { scriptpubkey?: string; scriptpubkey_address?: string; value: number }[];
   fee?: number;
   status: { confirmed: boolean; block_height?: number; block_time?: number };
 }

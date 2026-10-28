@@ -1,3 +1,5 @@
+import { checkAddress } from './onchain/keys';
+import { walletNetwork } from './onchain/config';
 import { nip19 } from 'nostr-tools';
 import type { Frequency, Standing } from '@ajo/core';
 
@@ -48,6 +50,13 @@ export const frequencyLabel: Record<Frequency, string> = {
 
 export function validateAddress(address: string): string | undefined {
   return /^[^@\s]+@[^@\s]+$/.test(address.trim()) ? undefined : 'Enter an address like name@wallet.com';
+}
+
+/** Checks a Bitcoin address against the wallet's network; returns a message for the person, or undefined if it is fine. */
+export function validateBitcoinAddress(address: string): string | undefined {
+  const { net, problem } = walletNetwork();
+  if (!net) return problem;
+  try { checkAddress(address, net); return undefined; } catch (e) { return (e as Error).message; }
 }
 
 /** A member's record in this group, in plain words. */

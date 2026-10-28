@@ -29,6 +29,13 @@ The **Bitcoin** tab is a genuine self-custodial wallet: the keys are created and
 browser, locked by a password and encrypted (PBKDF2 + AES-GCM), and the 12 words are the backup. Nobody
 else, including us, can move the coins. It runs on the Mutinynet signet test network by default;
 mainnet is switched off unless `VITE_ALLOW_MAINNET=1`, because this code has not had a security audit.
+**Paying an ajo in Bitcoin.** When creating a group the organizer can choose *Bitcoin on-chain* instead of
+Lightning. Members then use their in-app wallet address as their payout address, and pay each round from
+the group page with one tap. The payment carries a short tag (an OP_RETURN output derived from the
+group, round and payer) so the coordinator can tell who paid; it reads the recipient's address on the
+blockchain (Esplora) and closes the round by itself, with no receipt, invoice or provider support needed.
+Trade-offs: each payment costs a network fee and takes a block or more to confirm, so it suits larger, less
+frequent rounds; Lightning stays better for small, frequent ones. Auto-pay is Lightning-only.
 The **Lightning** tab does not hold funds: it is an interface to the user's own Lightning wallet (for
 example Alby Hub), which is where the Lightning node lives. An in-browser Lightning node is not practical
 today, so the app pairs the two: on-chain for keeping, Lightning for paying the circle.
@@ -249,6 +256,7 @@ Set in `.env` at the repo root (read by the bot and the live tests), or in the e
 | `GEMINI_MODELS` | bot | Comma-separated model list, tried in order. Default `gemini-3.1-flash-lite,gemini-2.5-flash`. |
 | `AI_REMINDER_LANGUAGES` | bot | Languages in which Gemini may write reminders. Default `en`; others use fixed templates. |
 | `VITE_BTC_NETWORK`, `VITE_ESPLORA_URL`, `VITE_ALLOW_MAINNET` | web | On-chain wallet network (`signet` default, `testnet`), the block explorer API to use, and the mainnet switch (leave off). |
+| `ESPLORA_URL`, `ONCHAIN_MIN_CONFIRMATIONS` | bot | The blockchain server the coordinator reads for on-chain groups (Mutinynet by default) and the confirmations a payment needs (1). |
 | `ONCHAIN_TEST_MNEMONIC` | `e2e:bitcoin` | A funded signet wallet for the live on-chain test. Run the test once without it and it prints a fresh one and an address to fund. |
 | `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | live tests, stand-in | Wallet connections described above. |
 | `LNURL_INVOICE_EXPIRY` | stand-in | Seconds its invoices stay payable. By default the wallet's own (24 hours on Alby Hub). Short values are for testing refresh. |
@@ -279,6 +287,7 @@ drive the real system and are run per package with `npm run <name> -w <package>`
 | `e2e:live-ai -w @ajo/bot` | `GEMINI_API_KEY` | what Gemini writes in all four languages | none |
 | `e2e:browser -w @ajo/web` | relay, web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT` | create, join, pay and confirm in real Chrome | 1000 sats |
 | `e2e:bitcoin -w @ajo/web` | web dev server, Chrome, internet (Mutinynet); `ONCHAIN_TEST_MNEMONIC` for the funded half | the on-chain wallet: create, verify backup, lock/unlock, restore on a second device; with funds, real balance and a real signed payment confirmed in a block | network fee only |
+| `e2e:onchain-group -w @ajo/web` | relay, web dev server, Chrome, internet; funded `ONCHAIN_TEST_MNEMONIC` for the payment half | a group paid in Bitcoin: invite, join with the wallet's address, pay from the group page, the coordinator closes the round from the blockchain | ~1,200 test sats |
 | `e2e:wallet -w @ajo/web` | web dev server, Chrome, `NWC_PAYER`, `NWC_RECIPIENT`, `NWC_AUTOPAY` | the Wallet page: connect, balance, receive from another wallet, send to an invoice and to a Lightning address, budget meter, over-budget payment refused (about 1400 sats) | ~1400 sats |
 | `e2e:invite -w @ajo/web` | same | two browser identities: invite link, approval, start, payment from outside the app, confirmation | 1000 sats |
 

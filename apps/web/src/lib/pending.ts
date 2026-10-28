@@ -1,7 +1,7 @@
 import type { GroupRef, Language } from '@ajo/core';
 
 /** What a person entered when asking to join, kept so joining finishes by itself once they're approved. */
-export interface PendingJoin { lightningAddress: string; language: Language }
+export interface PendingJoin { lightningAddress: string; bitcoinAddress?: string; language: Language }
 
 const key = (ref: GroupRef) => `ajo.pending.${ref.author}.${ref.id}`;
 

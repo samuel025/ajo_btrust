@@ -4,27 +4,20 @@ import { QrImage } from '../components/QrImage';
 import { formatNaira, satsToNaira } from '../lib/rate';
 import { Esplora, pickFeeRate } from '../lib/onchain/esplora';
 import { Account, checkAddress } from '../lib/onchain/keys';
-import { chosenNetwork, type NetworkConfig } from '../lib/onchain/network';
+import { walletNetwork } from '../lib/onchain/config';
+import type { NetworkConfig } from '../lib/onchain/network';
+import { setUnlocked, useUnlocked } from '../lib/onchain/session';
 import { scanWallet, type Snapshot } from '../lib/onchain/scan';
 import { checksPass, isValidMnemonic, newMnemonic, normalizeMnemonic, pickChecks, seedFromMnemonic } from '../lib/onchain/seed';
 import { SendError, assertSaneFee, buildTransaction, planSend, type Built, type Plan } from '../lib/onchain/send';
 import { loadVault, openMnemonic, removeVault, saveVault, sealMnemonic, type VaultRecord } from '../lib/onchain/vault';
 
-function network(): { net?: NetworkConfig; problem?: string } {
-  try {
-    const net = chosenNetwork({ network: import.meta.env.VITE_BTC_NETWORK, allowMainnet: import.meta.env.VITE_ALLOW_MAINNET });
-    const esplora = import.meta.env.VITE_ESPLORA_URL;
-    return { net: esplora ? { ...net, esplora } : net };
-  } catch (e) {
-    return { problem: (e as Error).message };
-  }
-}
-
 /** An on-chain Bitcoin wallet. The keys are made and kept here, in this browser, protected by a password. */
 export function BitcoinWallet({ ctx }: { ctx: Ctx }) {
-  const { net, problem } = useMemo(network, []);
+  const { net, problem } = useMemo(walletNetwork, []);
   const [vault, setVault] = useState<VaultRecord | undefined>(loadVault);
-  const [account, setAccount] = useState<Account>();
+  const account = useUnlocked();
+  const setAccount = setUnlocked;
   if (!net) return <section className="card"><p className="error">{problem}</p></section>;
 
   if (account) return <Unlocked ctx={ctx} net={net} account={account} onLock={() => setAccount(undefined)} onRemoved={() => { setAccount(undefined); setVault(undefined); }} />;
@@ -65,9 +58,10 @@ function Setup({ net, onDone }: { net: NetworkConfig; onDone: (record: VaultReco
     setError(undefined);
     setBusy(true);
     try {
-      const record = await sealMnemonic(words, pw, net.name);
+      const acct = new Account(seedFromMnemonic(words), net);
+      const record = { ...(await sealMnemonic(words, pw, net.name)), address: acct.address(0, 0) };
       if (!saveVault(record)) throw new Error("This browser won't let the wallet be saved. Check that site data isn't blocked.");
-      onDone(record, new Account(seedFromMnemonic(words), net));
+      onDone(record, acct);
     } catch (e) {
       setError((e as Error).message);
     } finally {

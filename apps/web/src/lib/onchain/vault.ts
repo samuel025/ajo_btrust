@@ -10,6 +10,8 @@ export interface VaultRecord {
   iv: string;
   iterations: number;
   data: string;
+  /** The wallet's first receiving address. Not a secret; kept so a group can be joined without unlocking. */
+  address?: string;
 }
 
 const ITERATIONS = 600_000;

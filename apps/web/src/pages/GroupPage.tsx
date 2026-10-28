@@ -5,9 +5,12 @@ import { inviteLink } from '../lib/invite';
 import { clearPending, loadPending } from '../lib/pending';
 import { usePoll } from '../lib/hooks';
 import { payInvoice } from '../lib/pay';
-import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress } from '../lib/format';
-import { withNaira, type Rate } from '../lib/rate';
+import { formatDate, formatDateTime, formatSats, frequencyLabel, nextNineAm, recordText, shortKey, validateAddress, validateBitcoinAddress } from '../lib/format';
+import { formatNaira, satsToNaira, withNaira, type Rate } from '../lib/rate';
+import { walletNetwork } from '../lib/onchain/config';
 import { InvoiceQr } from '../components/InvoiceQr';
+import { PayoutField } from '../components/PayoutField';
+import { PayOnChain } from '../components/PayOnChain';
 import { invoiceStatus } from '../lib/invoice';
 import type { Ctx } from '../App';
 
@@ -41,7 +44,7 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
     const pending = loadPending({ author, id: published.id });
     if (!pending) return;
     autoJoined.current = true;
-    publish(relay, ctx.signer, joinEvent({ groupId: published.id, lightningAddress: pending.lightningAddress, language: pending.language }, groupKey))
+    publish(relay, ctx.signer, joinEvent({ groupId: published.id, lightningAddress: pending.lightningAddress, bitcoinAddress: pending.bitcoinAddress, language: pending.language }, groupKey))
       .then(() => { clearPending({ author, id: published.id }); refresh(); })
       .catch(() => { autoJoined.current = false; });
   }, [activity, isMember]);
@@ -52,7 +55,7 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
     <>
       <h1>{group.name}</h1>
       <p className="muted">
-        {withNaira(group.amountSats, ctx.rate)} per round · {frequencyLabel[group.frequency]} · {group.payoutOrder.length} members
+        {withNaira(group.amountSats, ctx.rate)} per round · {frequencyLabel[group.frequency]} · {group.payoutOrder.length} members{group.rail === 'onchain' ? ' · paid in Bitcoin on-chain' : ''}
       </p>
 
       {!isMember && <p className="error">You're not a member of this group.</p>}
@@ -64,7 +67,7 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
       )}
 
       {!group.forming && isMember && activity && activity.notices.length > 0 && <NoticesCard notices={activity.notices} />}
-      {!group.forming && isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
+      {!group.forming && group.rail !== 'onchain' && isMember && activity?.addresses[me] && <AutopayCard ctx={ctx} group={group} enabled={activity.autopay} onChanged={refresh} />}
 
       {!group.forming && isMember && activity?.addresses[me] && <AssistantCard ctx={ctx} group={group} thread={activity.thread} onAsked={refresh} />}
 
@@ -131,11 +134,12 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
 
   const join = async (e: React.FormEvent) => {
     e.preventDefault();
-    const problem = validateAddress(address);
+    const onchain = group.rail === 'onchain';
+    const problem = onchain ? validateBitcoinAddress(address) : validateAddress(address);
     if (problem) return setError(problem);
     setBusy(true);
     try {
-      await publish(ctx.settings.relay, ctx.signer, joinEvent({ groupId: group.id, lightningAddress: address.trim(), language }, groupKey));
+      await publish(ctx.settings.relay, ctx.signer, joinEvent({ groupId: group.id, lightningAddress: onchain ? '' : address.trim(), bitcoinAddress: onchain ? address.trim() : undefined, language }, groupKey));
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -147,10 +151,8 @@ function JoinCard({ ctx, group, groupKey, onDone }: { ctx: Ctx; group: GroupDef;
   return (
     <form className="card" onSubmit={join}>
       <h2>Join this group</h2>
-      <p className="muted">By joining you agree to pay {withNaira(group.amountSats, ctx.rate)} each round. Members pay you at this Lightning address when it's your turn.</p>
-      <label>Your Lightning address
-        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="you@wallet.com" />
-      </label>
+      <p className="muted">By joining you agree to pay {withNaira(group.amountSats, ctx.rate)} each round. Members pay you at this {group.rail === 'onchain' ? 'Bitcoin' : 'Lightning'} address when it's your turn.</p>
+      <PayoutField rail={group.rail} value={address} onChange={setAddress} />
       <label>Language for reminders
         <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
           {Object.entries(LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
@@ -199,6 +201,19 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
   }
   if (state.paid.includes(me) || status === 'sent') {
     return <section className="card"><h2>{heading}</h2><p>✓ You've paid. {state.paid.includes(me) ? 'The coordinator has confirmed it.' : 'Waiting for the coordinator to confirm.'}</p></section>;
+  }
+
+  if (group.rail === 'onchain') {
+    // Test coins have no price, so no naira estimate is shown next to them.
+    const priced = ctx.rate && walletNetwork().net?.testCoins === false;
+    const naira = (sats: number) => (priced ? ` (≈ ${formatNaira(satsToNaira(sats, ctx.rate!.ngnPerBtc))})` : '');
+    return (
+      <section className="card">
+        <h2>{heading}: pay {shortKey(state.recipient)}</h2>
+        <p>{withNaira(group.amountSats, ctx.rate)} due by {formatDateTime(state.deadline)}, plus the network fee.</p>
+        <PayOnChain group={group} state={state} recipientAddress={activity.addresses[state.recipient]} me={me} naira={naira} />
+      </section>
+    );
   }
 
   const invoice = state.invoices[me];
@@ -396,7 +411,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const link = inviteLink({ author: ctx.signer.pubkey, id: group.id, name: group.name, amountSats: group.amountSats, frequency: group.frequency });
+  const link = inviteLink({ author: ctx.signer.pubkey, id: group.id, name: group.name, amountSats: group.amountSats, frequency: group.frequency, rail: group.rail });
 
   const update = async (next: GroupDef) => {
     setError(undefined);
@@ -437,7 +452,7 @@ function FormingCard({ ctx, group, groupKey, requests, onChanged }: {
       <ul className="requests">
         {requests.map((r) => (
           <li key={r.id}>
-            <span>{shortKey(r.member)}<div className="muted small">{r.lightningAddress}</div></span>
+            <span>{shortKey(r.member)}<div className="muted small">{r.lightningAddress || r.bitcoinAddress}</div></span>
             <button disabled={busy} onClick={() => update({ ...group, payoutOrder: [...group.payoutOrder, r.member] })}>Add to group</button>
           </li>
         ))}

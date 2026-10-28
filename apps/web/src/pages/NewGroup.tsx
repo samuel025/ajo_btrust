@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { nip19 } from 'nostr-tools';
-import { createGroupKey, groupEvent, type Frequency } from '@ajo/core';
+import { createGroupKey, groupEvent, type Frequency, type GroupRail } from '@ajo/core';
 import { publish } from '../lib/ledger';
 import { parseMembers, toHexPubkey } from '../lib/format';
 import { formatNaira, nairaToSats, satsToNaira } from '../lib/rate';
@@ -13,6 +13,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('50000');
   const [frequency, setFrequency] = useState<Frequency>('weekly');
+  const [rail, setRail] = useState<GroupRail>('lightning');
   const [start, setStart] = useState(inAWeek);
   const [coordinator, setCoordinator] = useState(ctx.settings.coordinator);
   const [members, setMembers] = useState(`${me}\n`);
@@ -42,6 +43,7 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
         startedAt: mode === 'npubs' ? Math.floor(Date.now() / 1000) : undefined,
         coordinator: toHexPubkey(coordinator),
         forming: mode === 'invite' || undefined,
+        rail: rail === 'onchain' ? 'onchain' : undefined,
       }, createGroupKey(), ctx.signer.cipher));
       ctx.navigate(`/g/${ctx.signer.pubkey}/${encodeURIComponent(id)}`);
     } catch (err) {
@@ -82,6 +84,11 @@ export function NewGroup({ ctx }: { ctx: Ctx }) {
       <label>First round is due
         <input type="date" required value={start} onChange={(e) => setStart(e.target.value)} />
       </label>
+      <fieldset className="mode">
+        <legend>How do members pay?</legend>
+        <label className="radio"><input type="radio" checked={rail === 'lightning'} onChange={() => setRail('lightning')} /> Lightning <span className="muted small">(instant, near-zero fees; needs a Lightning wallet)</span></label>
+        <label className="radio"><input type="radio" checked={rail === 'onchain'} onChange={() => setRail('onchain')} /> Bitcoin on-chain <span className="muted small">(works with the wallet in this app; each payment pays a network fee and takes a few minutes to confirm, so it suits larger, less frequent rounds)</span></label>
+      </fieldset>
       <fieldset className="mode">
         <legend>Who is in the group?</legend>
         <label className="radio"><input type="radio" checked={mode === 'invite'} onChange={() => setMode('invite')} /> I'll send an invite link <span className="muted small">(easiest: people join from the link and you approve them)</span></label>

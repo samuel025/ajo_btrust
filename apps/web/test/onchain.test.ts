@@ -353,3 +353,24 @@ describe('finding the wallet\'s coins on the blockchain', () => {
     expect(snap).toMatchObject({ confirmedSats: 0, pendingSats: 0, nextReceive: 0, nextChange: 0, txs: [], utxos: [] });
   });
 });
+
+describe('tagged payments', () => {
+  const tag = 'a1b2c3d4e5f60718';
+  const utxo = (value: number) => ({ txid: 'ab'.repeat(32), vout: 0, value, chain: 0 as const, index: 0, confirmed: true, address: 'x' });
+
+  it('plans a larger fee for the tag output, and builds a transaction that carries the tag and the payment', () => {
+    const plain = planSend({ utxos: [utxo(100_000)], amountSats: 20_000, feeRate: 2 });
+    const tagged = planSend({ utxos: [utxo(100_000)], amountSats: 20_000, feeRate: 2, tagged: true });
+    expect(tagged.feeSats - plain.feeSats).toBe(Math.ceil(19 * 2));
+    const account = new Account(seedFromMnemonic(PHRASE), signet);
+    const real = { ...utxo(100_000), txid: 'cd'.repeat(32) };
+    const plan = planSend({ utxos: [real], amountSats: 20_000, feeRate: 2, tagged: true });
+    const to = account.address(0, 5);
+    const built = buildTransaction(plan, to, account.address(1, 0), account, signet, tag);
+    const parsed = btc.Transaction.fromRaw(Uint8Array.from(built.hex.match(/../g)!.map((h) => parseInt(h, 16))), { allowUnknownOutputs: true });
+    const scripts = Array.from({ length: parsed.outputsLength }, (_, i) => parsed.getOutput(i));
+    expect(scripts.some((o) => o.amount === 0n && Buffer.from(o.script!).toString('hex') === `6a08${tag}`)).toBe(true);
+    expect(scripts.some((o) => o.amount === 20_000n)).toBe(true);
+    expect(built.vsize).toBeLessThanOrEqual(plan.vsize + 2);
+  });
+});

@@ -1,7 +1,7 @@
 import {
   isFinished, isUpcoming, openRound, type GroupDef, type GroupRef, type Receipt, type RoundState,
 } from '@ajo/core';
-import { nextRound, tick, type Action, type CheckPayment, type FetchInvoice } from './engine';
+import { nextRound, tick, type Action, type ChainView, type CheckPayment, type FetchInvoice } from './engine';
 import { answerQuestions, sendReminders, type Outbox } from './assistant';
 import { templateWriter, type Writer } from './messages';
 
@@ -14,6 +14,8 @@ export interface Ledger extends Outbox {
   group(ref: GroupRef): Promise<GroupDef | undefined>;
   /** Lightning address by member pubkey, from join events. */
   addresses(group: GroupDef): Promise<Record<string, string>>;
+  /** Bitcoin address by member pubkey, from join events. Only needed for groups that pay on-chain. */
+  bitcoinAddresses?(group: GroupDef): Promise<Record<string, string>>;
   receipts(group: GroupDef): Promise<Receipt[]>;
   /** Wallet connections members granted for auto-pay, by member pubkey. */
   grants(group: GroupDef): Promise<Record<string, string>>;
@@ -48,6 +50,10 @@ export interface RunDeps {
   paid?: Map<string, string>;
   /** Confirms payments made from any wallet by asking the recipient's provider. */
   checkPayment?: CheckPayment;
+  /** Reads the blockchain to confirm on-chain payments. Without it, on-chain groups cannot be confirmed. */
+  chain?: ChainView;
+  /** Confirmations an on-chain payment needs; defaults to 1. */
+  minConfirmations?: number;
   /** Writes reminders and answers; defaults to fixed templates. */
   writer?: Writer;
 }
@@ -71,6 +77,8 @@ export async function runOnce(
   const input = {
     group: current.group, state: current.state, now, fetchInvoice, checkPayment: deps.checkPayment,
     addresses: await ledger.addresses(published),
+    bitcoinAddresses: published.rail === 'onchain' && ledger.bitcoinAddresses ? await ledger.bitcoinAddresses(published) : undefined,
+    chain: deps.chain, minConfirmations: deps.minConfirmations,
     receipts: await ledger.receipts(published),
   };
   const writer = deps.writer ?? templateWriter;
@@ -82,7 +90,7 @@ export async function runOnce(
     return answerOnly(ledger, current.group, current.state, writer);
   }
 
-  const grants = deps.pay ? await ledger.grants(published) : {};
+  const grants = deps.pay && published.rail !== 'onchain' ? await ledger.grants(published) : {};
   let result = await tick(input);
 
   // Reminders go out before the state that records them, so a failed send is retried next run.

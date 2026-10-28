@@ -38,6 +38,19 @@ export function nostrLedger(relays: string[], secretKey: Uint8Array): Ledger {
       }
       return addresses;
     },
+    async bitcoinAddresses(group) {
+      const key = keyFor(group.id);
+      const events = await query({ kinds: [KIND_JOIN], '#a': [group.id] });
+      const addresses: Record<string, string> = {};
+      for (const event of events.sort((a, b) => a.created_at - b.created_at)) {
+        if (!group.payoutOrder.includes(event.pubkey)) continue;
+        try {
+          const { bitcoinAddress } = parseJoin(event, key);
+          if (bitcoinAddress) addresses[event.pubkey] = bitcoinAddress;
+        } catch { /* skip */ }
+      }
+      return addresses;
+    },
     async receipts(group) {
       const key = keyFor(group.id);
       const events = await query({ kinds: [KIND_RECEIPT], '#a': [group.id] });

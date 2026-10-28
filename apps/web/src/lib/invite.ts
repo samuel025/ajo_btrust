@@ -1,4 +1,4 @@
-import type { Frequency } from '@ajo/core';
+import type { Frequency, GroupRail } from '@ajo/core';
 
 /**
  * An invite carries only what a person needs to decide whether to ask to join: the organizer, the
@@ -11,6 +11,8 @@ export interface Invite {
   name: string;
   amountSats: number;
   frequency: Frequency;
+  /** How the group is paid; Lightning when absent. */
+  rail?: GroupRail;
 }
 
 const FREQUENCIES: Frequency[] = ['weekly', 'biweekly', 'monthly', 'testing'];
@@ -18,6 +20,7 @@ const FREQUENCIES: Frequency[] = ['weekly', 'biweekly', 'monthly', 'testing'];
 /** The hash route for an invite, e.g. "/invite/<organizer>/<id>?n=Office&a=50000&f=weekly". */
 export function inviteRoute(invite: Invite): string {
   const query = new URLSearchParams({ n: invite.name, a: String(invite.amountSats), f: invite.frequency });
+  if (invite.rail === 'onchain') query.set('r', 'onchain');
   return `/invite/${invite.author}/${encodeURIComponent(invite.id)}?${query}`;
 }
 
@@ -32,7 +35,7 @@ export function parseInvite(route: string): Invite | undefined {
   const amountSats = Number(query.get('a'));
   const frequency = query.get('f') as Frequency;
   if (!name || name.length > 80 || !Number.isInteger(amountSats) || amountSats < 1 || !FREQUENCIES.includes(frequency)) return undefined;
-  return { author: match[1]!, id: decodeURIComponent(match[2]!), name, amountSats, frequency };
+  return { author: match[1]!, id: decodeURIComponent(match[2]!), name, amountSats, frequency, rail: query.get('r') === 'onchain' ? 'onchain' : undefined };
 }
 
 export const isInviteRoute = (route: string) => route.startsWith('/invite/');

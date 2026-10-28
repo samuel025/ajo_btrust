@@ -32,7 +32,7 @@ export function buildContext(group: GroupDef, state: RoundState, member: string,
       receivesInRound: index + 1,
       receivesOn: index >= 0 ? formatDate(roundDeadline(group, index)) : 'unknown',
       owesNow: open && member !== state.recipient && !state.paid.includes(member),
-      invoiceReady: !!state.invoices[member],
+      invoiceReady: group.rail === 'onchain' || !!state.invoices[member],
       autopay,
     },
   };

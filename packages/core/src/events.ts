@@ -27,7 +27,7 @@ export function joinEvent(join: Join, key: GroupKey, createdAt = now()): EventTe
     kind: KIND_JOIN,
     created_at: createdAt,
     tags: [['a', join.groupId]],
-    content: seal(key, { lightningAddress: join.lightningAddress, language: join.language }),
+    content: seal(key, { lightningAddress: join.lightningAddress, bitcoinAddress: join.bitcoinAddress, language: join.language }),
   };
 }
 
@@ -47,6 +47,7 @@ export function roundEvent(state: RoundState, key: GroupKey, createdAt = now()):
       payoutOrder: state.payoutOrder,
       reminders: state.reminders,
       paidAt: state.paidAt,
+      txids: state.txids,
       defaulted: state.defaulted,
       status: state.status,
     }),
@@ -90,8 +91,8 @@ export async function parseGroup(event: NostrEvent, me: string, cipher: Cipher):
 
 export function parseJoin(event: NostrEvent, key: GroupKey): Join & { member: string } {
   expectKind(event, KIND_JOIN);
-  const { lightningAddress, language } = open<{ lightningAddress: string; language?: Language }>(key, event.content);
-  return { groupId: tag(event, 'a'), member: event.pubkey, lightningAddress, language };
+  const { lightningAddress, bitcoinAddress, language } = open<{ lightningAddress: string; bitcoinAddress?: string; language?: Language }>(key, event.content);
+  return { groupId: tag(event, 'a'), member: event.pubkey, lightningAddress, bitcoinAddress, language };
 }
 
 /** Round state is only trusted when published by the group's coordinator. */
@@ -199,10 +200,10 @@ export async function parseNotice(event: NostrEvent, peer: string, cipher: Ciphe
   return { member: tag(event, 'p'), round: Number(tag(event, 'round')), stage: tag(event, 'stage') as ReminderStage, text, at: event.created_at };
 }
 
-export interface JoinRequest { id: string; member: string; lightningAddress: string; language?: Language; at: number }
+export interface JoinRequest { id: string; member: string; lightningAddress: string; bitcoinAddress?: string; language?: Language; at: number }
 
 /** Someone with an invite link asks the organizer to add them. Only the organizer can read it. */
-export async function requestEvent(groupId: string, organizer: string, request: { lightningAddress: string; language?: Language }, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
+export async function requestEvent(groupId: string, organizer: string, request: { lightningAddress: string; bitcoinAddress?: string; language?: Language }, cipher: Cipher, createdAt = now()): Promise<EventTemplate> {
   return {
     kind: KIND_REQUEST,
     created_at: createdAt,
@@ -214,7 +215,10 @@ export async function requestEvent(groupId: string, organizer: string, request: 
 /** `peer` is the organizer when the requester reads their own request, and the requester when the organizer reads it. */
 export async function parseRequest(event: NostrEvent, peer: string, cipher: Cipher): Promise<JoinRequest> {
   expectKind(event, KIND_REQUEST);
-  const { lightningAddress, language } = JSON.parse(await cipher.decrypt(peer, event.content)) as { lightningAddress: string; language?: Language };
-  if (typeof lightningAddress !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(lightningAddress)) throw new Error('malformed request');
-  return { id: event.id, member: event.pubkey, lightningAddress, language, at: event.created_at };
+  const { lightningAddress, bitcoinAddress, language } = JSON.parse(await cipher.decrypt(peer, event.content)) as { lightningAddress: string; bitcoinAddress?: string; language?: Language };
+  // A request needs a Lightning address or, for an on-chain group, a Bitcoin address.
+  const lightningOk = typeof lightningAddress === 'string' && /^[^@\s]+@[^@\s]+$/.test(lightningAddress);
+  const bitcoinOk = typeof bitcoinAddress === 'string' && /^[a-z0-9]{14,90}$/i.test(bitcoinAddress);
+  if (!lightningOk && !bitcoinOk) throw new Error('malformed request');
+  return { id: event.id, member: event.pubkey, lightningAddress: lightningOk ? lightningAddress : '', bitcoinAddress: bitcoinOk ? bitcoinAddress : undefined, language, at: event.created_at };
 }

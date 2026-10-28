@@ -6,3 +6,4 @@ export * from './events';
 export * from './receipt';
 export * from './lnurl';
 export * from './reputation';
+export * from './onchain';

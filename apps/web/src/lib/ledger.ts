@@ -61,7 +61,12 @@ export async function loadActivity(relay: string, group: GroupDef, key: GroupKey
   const addresses: Record<string, string> = {};
   for (const event of [...joins].sort((a, b) => a.created_at - b.created_at)) {
     if (!group.payoutOrder.includes(event.pubkey)) continue;
-    try { addresses[event.pubkey] = parseJoin(event, key).lightningAddress; } catch { /* skip */ }
+    try {
+      const join = parseJoin(event, key);
+      // In an on-chain group the address that matters is the Bitcoin one.
+      const address = group.rail === 'onchain' ? join.bitcoinAddress : join.lightningAddress;
+      if (address) addresses[event.pubkey] = address;
+    } catch { /* skip */ }
   }
 
   const rounds = new Map<number, RoundState>();
@@ -126,6 +131,6 @@ export async function publishGroupUpdate(relay: string, signer: Signer, group: G
 }
 
 /** Asks an organizer to add the signer to their group. */
-export async function sendJoinRequest(relay: string, signer: Signer, ref: GroupRef, request: { lightningAddress: string; language: Language }) {
+export async function sendJoinRequest(relay: string, signer: Signer, ref: GroupRef, request: { lightningAddress: string; bitcoinAddress?: string; language: Language }) {
   return publish(relay, signer, await requestEvent(ref.id, ref.author, request, signer.cipher));
 }

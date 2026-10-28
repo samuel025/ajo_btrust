@@ -17,6 +17,8 @@ export interface GroupDef {
   forming?: boolean;
   /** Unix seconds when the group was started. The first round opens then; each later round opens when the previous one is due. */
   startedAt?: number;
+  /** How members pay: over Lightning (default) or to the recipient's Bitcoin address on-chain. */
+  rail?: GroupRail;
 }
 
 /** A group is addressed by its organizer and id, so nobody else can publish a lookalike. */
@@ -24,6 +26,9 @@ export interface GroupRef {
   author: string;
   id: string;
 }
+
+/** How contributions are paid; see `Rail` in onchain.ts. */
+export type GroupRail = 'lightning' | 'onchain';
 
 export type Language = 'en' | 'pcm' | 'yo' | 'ha';
 
@@ -40,6 +45,8 @@ export interface Join {
   groupId: string;
   /** Where other members pay this member when it is their turn. */
   lightningAddress: string;
+  /** Where other members pay this member in an on-chain group. */
+  bitcoinAddress?: string;
   /** Language for reminders. */
   language?: Language;
 }
@@ -71,6 +78,8 @@ export interface RoundState {
   verify?: Record<string, string>;
   /** When the coordinator first saw each member's payment (unix seconds). Signed by the coordinator, so members can't backdate it. */
   paidAt?: Record<string, number>;
+  /** The transaction that paid each member's contribution, in an on-chain group. */
+  txids?: Record<string, string>;
   /** Members who didn't pay by the default deadline; the round closed without their contribution. */
   defaulted?: string[];
   status: 'open' | 'complete' | 'skipped';

@@ -1,12 +1,18 @@
 import {
-  isFinished, isRoundComplete, isUpcoming, needsRefresh, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
-  type GroupDef, type Receipt, type ReminderStage, type RoundState,
+  findOnchainPayments, isFinished, isRoundComplete, isUpcoming, needsRefresh, openRound, parseInvoice, unpaid, verifyReceipt, deferRecipient,
+  type ChainTx, type GroupDef, type Receipt, type ReminderStage, type RoundState,
 } from '@ajo/core';
 
 export type FetchInvoice = (lightningAddress: string, amountSats: number) => Promise<{ invoice: string; verifyUrl?: string }>;
 
 /** Asks the recipient's wallet provider whether an invoice was paid (LNURL-pay verify). */
 export type CheckPayment = (verifyUrl: string) => Promise<{ settled: boolean; preimage?: string }>;
+
+/** What the coordinator can see of the Bitcoin blockchain: the recent transactions of an address, and the latest block. */
+export interface ChainView {
+  txs(address: string): Promise<ChainTx[]>;
+  tip(): Promise<number>;
+}
 
 /** Pays one member's invoice from their auto-pay grant and returns the preimage; undefined if they have none. */
 export type AutoPay = (member: string, invoice: string) => Promise<string | undefined>;
@@ -17,6 +23,7 @@ export type Action =
   | { type: 'autopaid'; payer: string }
   | { type: 'payment-detected'; payer: string }
   | { type: 'verify-failed'; payer: string; reason: string }
+  | { type: 'chain-failed'; reason: string }
   | { type: 'defaulted'; members: string[]; round: number }
   | { type: 'answered'; count: number }
   | { type: 'assistant-error'; reason: string }
@@ -31,6 +38,12 @@ export interface TickInput {
   state: RoundState;
   /** Lightning address by member pubkey, from their join events. */
   addresses: Record<string, string>;
+  /** Bitcoin address by member pubkey, for groups that pay on-chain. */
+  bitcoinAddresses?: Record<string, string>;
+  /** Lets the coordinator see on-chain payments for itself. Needed for groups that pay on-chain. */
+  chain?: ChainView;
+  /** Confirmations an on-chain payment needs before it counts. */
+  minConfirmations?: number;
   /** Every receipt seen for this group; the engine picks out the ones for this round. */
   receipts: Receipt[];
   fetchInvoice: FetchInvoice;
@@ -97,13 +110,41 @@ export async function tick(input: TickInput): Promise<TickResult> {
     return result.ok;
   };
 
-  for (const receipt of receipts) accept(receipt);
+  const onchain = group.rail === 'onchain';
+  const recipientBitcoin = input.bitcoinAddresses?.[state.recipient];
+  /** Whether a member could pay right now: the recipient can be paid, and (on Lightning) an invoice exists. */
+  const canPay = (m: string) => (onchain ? !!recipientBitcoin : !!state.invoices[m]);
+
+  for (const receipt of onchain ? [] : receipts) accept(receipt);
+
+  // On-chain groups have no invoices or receipts. The coordinator reads the recipient's address on the
+  // blockchain and credits each member whose payment carries their tag for this round.
+  if (onchain && input.chain && recipientBitcoin) {
+    const owing = unpaid(group, state);
+    if (owing.length) {
+      try {
+        const [txs, tip] = await Promise.all([input.chain.txs(recipientBitcoin), input.chain.tip()]);
+        const found = findOnchainPayments({
+          txs, tip, recipientAddress: recipientBitcoin, amountSats: group.amountSats, groupId: group.id, round: state.round,
+          payers: owing, minConfirmations: input.minConfirmations ?? 1,
+        });
+        for (const [payer, txid] of Object.entries(found)) {
+          state.paid.push(payer);
+          state.paidAt = { ...state.paidAt, [payer]: now };
+          state.txids = { ...state.txids, [payer]: txid };
+          actions.push({ type: 'payment-detected', payer });
+        }
+      } catch (e) {
+        actions.push({ type: 'chain-failed', reason: (e as Error).message });
+      }
+    }
+  }
 
   // Members can pay from any wallet: if the recipient's provider offers a verify link, the
   // coordinator checks it and takes the preimage from there. It still verifies the preimage against
   // the invoice, so a provider's say-so alone proves nothing. This runs before auto-pay so an
   // invoice that was already paid by hand is never paid a second time.
-  if (input.checkPayment) {
+  if (input.checkPayment && !onchain) {
     for (const payer of unpaid(group, state)) {
       const links = [
         { invoice: state.invoices[payer], url: state.verify?.[payer] },
@@ -130,7 +171,7 @@ export async function tick(input: TickInput): Promise<TickResult> {
   // a whole period but an invoice only a day or an hour, so without this a member who pays late would be
   // handed a dead invoice. The old one is kept: a payment made on it before it expired still counts.
   const recipientAddress = input.addresses[state.recipient];
-  for (const payer of unpaid(group, state)) {
+  for (const payer of onchain ? [] : unpaid(group, state)) {
     const current = state.invoices[payer];
     if (current && !needsRefresh(current, now)) continue;
     try {
@@ -152,7 +193,7 @@ export async function tick(input: TickInput): Promise<TickResult> {
 
   // Members who opted in are paid by the coordinator, but only for an invoice it issued itself
   // and only for exactly the contribution, so a grant can never be spent on anything else.
-  if (input.autoPay) {
+  if (input.autoPay && !onchain) {
     for (const payer of unpaid(group, state)) {
       const invoice = state.invoices[payer];
       if (!invoice) continue;
@@ -176,7 +217,7 @@ export async function tick(input: TickInput): Promise<TickResult> {
   // nobody is blamed unless another member's payment got through, which shows the recipient was
   // reachable (otherwise an offline recipient would make every payer look like a defaulter).
   if (state.paid.length > 0 && now > state.deadline + (input.defaultAfterSeconds ?? DEFAULT_AFTER_SECONDS)) {
-    const defaulting = unpaid(group, state).filter((m) => state.invoices[m]);
+    const defaulting = unpaid(group, state).filter(canPay);
     if (defaulting.length) {
       state.defaulted = [...(state.defaulted ?? []), ...defaulting];
       actions.push({ type: 'defaulted', members: defaulting, round: state.round });
@@ -191,7 +232,7 @@ export async function tick(input: TickInput): Promise<TickResult> {
     return { group, state, actions, autoReceipts };
   }
 
-  if (now > state.deadline + grace && Object.keys(state.invoices).length === 0) {
+  if (now > state.deadline + grace && (onchain ? !recipientBitcoin : Object.keys(state.invoices).length === 0)) {
     // Nobody could get an invoice from the recipient, so the recipient is the problem.
     actions.push({ type: 'recipient-deferred', recipient: state.recipient, round: state.round });
     const deferred = deferRecipient(group, state.round);
@@ -204,7 +245,7 @@ export async function tick(input: TickInput): Promise<TickResult> {
   if (stage) {
     const rank: Record<ReminderStage, number> = { due: 1, overdue: 2 };
     const members = unpaid(group, state).filter(
-      (m) => state.invoices[m] && rank[stage] > (state.reminders?.[m] ? rank[state.reminders[m]!] : 0),
+      (m) => canPay(m) && rank[stage] > (state.reminders?.[m] ? rank[state.reminders[m]!] : 0),
     );
     if (members.length) {
       state.reminders = { ...state.reminders, ...Object.fromEntries(members.map((m) => [m, stage])) };

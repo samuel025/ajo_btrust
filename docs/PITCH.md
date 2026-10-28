@@ -47,6 +47,8 @@ The **Wallet** page holds two wallets that work together.
 
 **Lightning, for paying the circle.** It connects to the user's own Lightning wallet over Nostr Wallet Connect: balance, receive by QR invoice, send to an invoice or Lightning address, history, and a spending-budget meter.
 
+**It is used by the ajo itself.** A group can be paid in Bitcoin on-chain: members join with the wallet's address, pay from the group page, and the coordinator confirms by reading the blockchain. Lightning stays the better choice for small, frequent rounds, and the app says so.
+
 Both were tested in real Chrome against the real Mutinynet test network. Mainnet is switched off until the code is audited.
 
 ## What exists today
