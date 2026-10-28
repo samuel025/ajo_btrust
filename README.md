@@ -111,6 +111,33 @@ got through that round, so an unreachable collector can't make everyone look lik
 - Everything the coordinator fetches from addresses members control goes through a guard that refuses
   private, local and cloud-metadata addresses, redirects and oversized responses.
 
+## How the pieces fit together
+
+```
+  Member's browser (web app)            Coordinator (bot)             Wallets
+  ┌────────────────────────┐          ┌──────────────────┐     ┌───────────────────────┐
+  │ create / join / pay    │          │ opens rounds     │     │ Lightning: Alby Hub,   │
+  │ Bitcoin wallet (keys   │◄──────►  │ gets invoices    │◄───►│ any wallet app         │
+  │ kept in the browser)   │  RELAY   │ confirms payment │     │ On-chain: the app's    │
+  └──────────┬─────────────┘ (encrypted│ sends reminders  │     │ own Bitcoin wallet     │
+             │               messages)  └────────┬─────────┘     └───────────────────────┘
+             │                                   │
+             └───────── block explorer (Esplora) ┘   reads the blockchain
+```
+
+| Piece | What it is | Where it runs in the test setup |
+|---|---|---|
+| **Web app** | What people use. Holds the member's Nostr key and, in the Bitcoin tab, their on-chain wallet. | `http://localhost:5173` |
+| **Relay** | A server that stores and forwards the group's encrypted records. Never sees amounts or addresses. | Docker, `ws://localhost:7777` |
+| **Coordinator (bot)** | Runs the rounds and checks payments. Never holds money. Its key (`BOT_NSEC`) is its identity; the `npub` is what groups name as their coordinator. | `npm start -w @ajo/bot` or `npm run demo` |
+| **Lightning wallets** | Where Lightning money is. Alby Hub in the tests. | Docker, `:8080` and `:8081` |
+| **Lightning address stand-in** | Pretends to be the company behind a Lightning address (`name@localhost:3456`), always paying into hub 2. Test networks have no real ones. | `npm run lnurl -w @ajo/bot`, `:3456` |
+| **Block explorer** | A public website the app and the bot read the blockchain through. | `https://mutinynet.com/api` |
+
+Which road a group's money takes is chosen when it is created. **Lightning groups** need the wallets (and,
+on a test network, the stand-in). **On-chain groups** need none of them: only the relay, the web app, the
+bot, and test coins in the app's own wallet, so they are the quickest to reproduce.
+
 ## Repository layout
 
 ```
@@ -126,12 +153,33 @@ scripts/        open-channel.sh (open a Lightning channel from a local Alby Hub)
 You need **Node.js 22 or newer** (developed on 23) and **Docker**. Chrome is only needed for the
 browser tests. Everything below runs on your own machine.
 
+### Quickest path: an on-chain group (no Lightning needed)
+
+This runs a whole round with only a relay, the web app, the bot and free test coins.
+
+```
+npm install
+docker run -d --name ajo-relay -p 7777:8080 scsibug/nostr-rs-relay:latest
+npm run keygen -w @ajo/bot            # prints BOT_NSEC and an npub
+```
+
+1. Create `.env` in the repo root with `BOT_NSEC=…` and `RELAYS=ws://localhost:7777`.
+2. Create `apps/web/.env.local` with `VITE_COORDINATOR=<the npub>` so new groups name this bot.
+3. Run `npm run e2e:bitcoin -w @ajo/web` once. It makes a test wallet and prints a line
+   `ONCHAIN_TEST_MNEMONIC="…"` and an address: add the line to `.env`, then get free coins to the address at
+   <https://faucet.mutinynet.com> (a few thousand test sats is plenty).
+4. Run `npm run demo`. It starts the web app and the bot, and prints the steps.
+
+Then follow the steps it prints: two browser windows (a normal one and a private one), one creates an
+on-chain group (500 sats), the other restores the funded wallet from its twelve words and pays. The round
+closes by itself about a minute after the payment (signet makes a block about every 30 seconds).
+
 ### 1. Install
 
 ```
 git clone <this repo> && cd <repo>
 npm install
-npm test            # 146 unit tests; needs nothing else running
+npm test            # 256 unit tests; needs nothing else running
 ```
 
 ### 2. Start a relay
@@ -184,7 +232,7 @@ ORGANIZERS=npub1<organizer> AJO_ALLOW_LOCAL_LNURL=1 npm start -w @ajo/bot
 
 `AJO_ALLOW_LOCAL_LNURL=1` is only for local development, because test Lightning addresses live on
 `localhost`; the bot's safety guard refuses local addresses otherwise. Restart the bot after changing
-code, and after creating a new organizer. You can list groups by hand instead with
+code, and after creating a new organizer. (`npm run demo` starts the web app and a bot that runs every group that names it, which spares you this.) You can list groups by hand instead with
 `GROUPS=<organizer npub>:<group id>`.
 
 Without a Lightning setup you can follow the whole flow up to the point of paying. To pay, you need
@@ -251,6 +299,18 @@ docker run -d --name albyhub2 --network ajo-net -p 8081:8080 \
 Now use `name@localhost:3456` as the Lightning address when joining. To pay as "any wallet", copy the
 invoice from the pay card and send it from hub 1's **Send** screen. Within about a minute the bot
 confirms it by itself.
+
+## When something doesn't work
+
+| What you see | Likely cause and fix |
+|---|---|
+| A group sits on "Waiting for the coordinator to open this round" | The group names a different coordinator than the bot you are running (the app took it from **Settings, Default coordinator**), or the bot isn't running or has old code. Set the right `npub`, restart the bot, and **create a new group**: a group's coordinator can't be changed. |
+| The bot ignores a group | The organizer isn't in `ORGANIZERS` (use `npm run demo` for a private demo, which runs every group that names the bot), or the bot was started before the organizer existed. Restart it. |
+| "Pay with my browser wallet" doesn't appear | The app already has a wallet connected (Wallet, Lightning, About this connection, Disconnect), or no Lightning extension is installed. Extensions are usually off in private windows. |
+| A payment is "rejected" from a connected wallet | The connection may lack permission to pay, or its budget is used up. Check the connection in the wallet (for Alby Hub: Connections). |
+| "not enough confirmed Bitcoin" | The app's wallet needs test coins, or its last payment hasn't confirmed yet. Wait about 30 seconds. |
+| The connect window doesn't open | The browser blocked the pop-up; allow it for the site. |
+| Lightning payments fail between your hubs | The channel isn't active or has no balance on the paying side. Check with `node --env-file=.env scripts/nwc-check.mjs`. |
 
 ## Configuration reference
 
