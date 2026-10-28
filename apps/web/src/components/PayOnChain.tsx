@@ -14,8 +14,8 @@ import { formatSats, shortKey } from '../lib/format';
  * Pays this round's contribution from the app's own Bitcoin wallet. The payment carries a tag that says
  * "this member, this round", so the coordinator can see who paid by reading the blockchain.
  */
-export function PayOnChain({ group, state, recipientAddress, me, naira }: {
-  group: GroupDef; state: RoundState; recipientAddress: string | undefined; me: string; naira: (sats: number) => string;
+export function PayOnChain({ group, state, recipientAddress, me, naira, onSent }: {
+  group: GroupDef; state: RoundState; recipientAddress: string | undefined; me: string; naira: (sats: number) => string; onSent?: () => void;
 }) {
   const { net, problem } = useMemo(walletNetwork, []);
   const api = useMemo(() => (net ? new Esplora(net.esplora) : undefined), [net]);
@@ -111,6 +111,8 @@ export function PayOnChain({ group, state, recipientAddress, me, naira }: {
       const txid = await api.broadcast(review.built.hex);
       setMine({ txid, confirmations: 0 });
       setReview(undefined);
+      if (account) scanWallet(account, api).then(setSnap).catch(() => undefined); // the coins it spent are gone; look again
+      onSent?.();
     } catch (e) {
       setError((e as Error).message);
     } finally {

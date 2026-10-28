@@ -179,11 +179,15 @@ function Unlocked({ ctx, net, account, onLock, onRemoved }: { ctx: Ctx; net: Net
     setError(undefined);
     try { setSnap(await scanWallet(account, api)); } catch (e) { setError((e as Error).message); } finally { setLoading(false); }
   }, [account, api]);
+  // Look often while a payment is waiting for a block, and again whenever the person comes back to this tab.
+  const waiting = !!snap && (snap.pendingSats > 0 || snap.txs.some((t) => !t.confirmed));
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 30_000);
-    return () => clearInterval(timer);
-  }, [refresh]);
+    const timer = setInterval(() => void refresh(), waiting ? 8_000 : 30_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [refresh, waiting]);
 
   const showNaira = !net.testCoins && !!ctx.rate;
   const naira = (sats: number) => (showNaira ? ` (≈ ${formatNaira(satsToNaira(sats, ctx.rate!.ngnPerBtc))})` : '');

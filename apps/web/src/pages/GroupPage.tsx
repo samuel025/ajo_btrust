@@ -63,7 +63,7 @@ function Loaded({ ctx, published, groupKey, author }: { ctx: Ctx; published: Gro
       {group.forming && !isOrganizer && <section className="card"><h2>Waiting for the organizer</h2><p>People are still being added. The schedule starts when the organizer starts the group.</p></section>}
       {isMember && activity && !activity.addresses[me] && !loadPending({ author, id: published.id }) && <JoinCard ctx={ctx} group={group} groupKey={groupKey} onDone={refresh} />}
       {!group.forming && isMember && activity && activity.addresses[me] && (
-        <ActionCard ctx={ctx} group={group} groupKey={groupKey} activity={activity} round={current} onPaid={refresh} />
+        <ActionCard key={current ?? 'done'} ctx={ctx} group={group} groupKey={groupKey} activity={activity} round={current} onPaid={refresh} />
       )}
 
       {!group.forming && isMember && activity && activity.notices.length > 0 && <NoticesCard notices={activity.notices} />}
@@ -211,7 +211,7 @@ function ActionCard({ ctx, group, groupKey, activity, round, onPaid }: {
       <section className="card">
         <h2>{heading}: pay {shortKey(state.recipient)}</h2>
         <p>{withNaira(group.amountSats, ctx.rate)} due by {formatDateTime(state.deadline)}, plus the network fee.</p>
-        <PayOnChain group={group} state={state} recipientAddress={activity.addresses[state.recipient]} me={me} naira={naira} />
+        <PayOnChain group={group} state={state} recipientAddress={activity.addresses[state.recipient]} me={me} naira={naira} onSent={onPaid} />
       </section>
     );
   }
